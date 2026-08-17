@@ -17,13 +17,15 @@ services:
       - key: API_VERSION
         value: v1
       - key: SUPABASE_URL
-        sync: false
+        value: https://jwvclvlmlhmvzcpkldao.supabase.co
       - key: SUPABASE_ANON_KEY
-        sync: false
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3dmNsdmxtbGhtdnpjcGtsZGFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0MjE1MzQsImV4cCI6MjA5OTk5NzUzNH0.mJAPKby67vf9nPUNtqe3VfFB2GLEHG5OVYZqgRLVOkU
       - key: SUPABASE_SERVICE_KEY
-        sync: false
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3dmNsdmxtbGhtdnpjcGtsZGFvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NDQyMTUzNCwiZXhwIjoyMDk5OTk3NTM0fQ.YDbC7IfY0w0bHLePNJIWR7_J08q8jaWat7zmWH_b-4k
+      - key: DATABASE_URL
+        value: postgresql://postgres:Contreras30Paitan30@db.jwvclvlmlhmvzcpkldao.supabase.co:5432/postgres
       - key: CORS_ORIGIN
-        sync: false
+        value: https://tu-frontend.vercel.app
       - key: RATE_LIMIT_WINDOW_MS
         value: 900000
       - key: RATE_LIMIT_MAX_REQUESTS

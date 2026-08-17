@@ -231,9 +231,38 @@ CORS_ORIGIN=http://localhost:5173
 
 ---
 
+## 🌐 Deployment en Producción
+
+### Deploy en Render (Recomendado)
+
+```bash
+# 1. Ver guía completa de deployment
+# Archivo: DEPLOYMENT-RENDER.md
+
+# 2. Checklist rápido (30 minutos)
+# Archivo: QUICK-DEPLOYMENT-CHECKLIST.md
+
+# 3. Verificar deployment
+node scripts/verify-deployment.js https://tu-backend.onrender.com
+```
+
+**Archivos de Deployment:**
+- 📖 **[DEPLOYMENT-RENDER.md](./DEPLOYMENT-RENDER.md)** - Guía completa paso a paso
+- ✅ **[QUICK-DEPLOYMENT-CHECKLIST.md](./QUICK-DEPLOYMENT-CHECKLIST.md)** - Checklist de 30 minutos
+- 📝 **[render.yaml](./render.yaml)** - Configuración de Render
+
+**URLs en Producción:**
+- Backend: `https://botica-backend.onrender.com`
+- Frontend: `https://tu-app.vercel.app`
+- Supabase: `https://supabase.com/dashboard`
+
+---
+
 ## 📈 Próximos Pasos
 
-- [ ] Conectar con frontend
+- [x] Sistema de autenticación completo
+- [x] Deploy backend en Render
+- [x] Conectar con frontend en Vercel
 - [ ] Crear módulos de:
   - [ ] Productos
   - [ ] Categorías

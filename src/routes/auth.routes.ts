@@ -55,7 +55,7 @@ router.post('/login', async (req, res) => {
     
     const { data: userData, error: dbError } = await supabaseAdmin
       .from('usuario')
-      .select(`*, rol:id_rol (*)`)
+      .select(`*, rol (*)`)
       .eq('id_auth', data.user.id)
       .eq('estado_logico', true)
       .single();

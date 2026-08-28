@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { supabase } from '../config/supabase';
+import { supabaseAdmin } from '../config/supabase';
 import { AuthRequest, RolEnum } from '../types';
 
 /**
@@ -24,13 +24,14 @@ export const authenticate = async (
 
     const token = authHeader.substring(7); // Remover "Bearer "
 
-    // Verificar el token con Supabase
+    // Verificar el token con Supabase Auth usando admin client
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAdmin.auth.getUser(token);
 
     if (authError || !user) {
+      console.log('❌ Error en getUser:', authError?.message);
       return res.status(401).json({
         success: false,
         message: 'Token inválido o expirado',
@@ -38,20 +39,30 @@ export const authenticate = async (
       });
     }
 
-    // Obtener datos del usuario desde nuestra tabla
-    const { data: userData, error: dbError } = await supabase
+    console.log('✅ Usuario autenticado:', { id: user.id, email: user.email });
+
+    // Obtener datos del usuario desde nuestra tabla usando admin client
+    const { data: userData, error: dbError } = await supabaseAdmin
       .from('usuario')
-      .select(
-        `
+      .select(`
         *,
-        rol:id_rol (*)
-      `
-      )
+        rol (*)
+      `)
       .eq('id_auth', user.id)
       .eq('estado_logico', true)
-      .single();
+      .limit(1);
 
-    if (dbError || !userData) {
+    console.log('📊 Resultado de consulta usuario:', { 
+      userData, 
+      error: dbError?.message,
+      id_auth_buscado: user.id,
+      cantidad: userData?.length
+    });
+
+    const userRecord = Array.isArray(userData) && userData.length > 0 ? userData[0] : null;
+
+    if (dbError || !userRecord) {
+      console.log('❌ Usuario no encontrado en BD o inactivo');
       return res.status(404).json({
         success: false,
         message: 'Usuario no encontrado o inactivo',
@@ -63,8 +74,8 @@ export const authenticate = async (
     req.user = {
       id_auth: user.id,
       email: user.email!,
-      usuario: userData,
-      rol: userData.rol,
+      usuario: userRecord,
+      rol: userRecord.rol,
     };
 
     next();

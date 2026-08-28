@@ -34,12 +34,10 @@ export const login = async (req: AuthRequest, res: Response) => {
     // Obtener datos del usuario desde nuestra tabla
     const { data: userData, error: dbError } = await supabase
       .from('usuario')
-      .select(
-        `
+      .select(`
         *,
-        rol:id_rol (*)
-      `
-      )
+        rol (*)
+      `)
       .eq('id_auth', data.user.id)
       .eq('estado_logico', true)
       .single();

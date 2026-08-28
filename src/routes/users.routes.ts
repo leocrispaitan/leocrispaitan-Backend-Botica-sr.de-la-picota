@@ -1,17 +1,25 @@
 import { Router } from 'express';
 import {
+  createUser,
   getAllUsers,
   getUserById,
   updateUserStatus,
   updateUser,
   deleteUser,
 } from '../controllers/users.controller';
-import { authenticate } from '../middlewares/auth.middleware';
+import { authenticate, isAdmin } from '../middlewares/auth.middleware';
 
 const router = Router();
 
 // Todas las rutas requieren autenticación
 router.use(authenticate);
+
+/**
+ * @route   POST /api/v1/users
+ * @desc    Crear un nuevo usuario
+ * @access  Private (requiere autenticación - solo admin)
+ */
+router.post('/', isAdmin, createUser);
 
 /**
  * @route   GET /api/v1/users

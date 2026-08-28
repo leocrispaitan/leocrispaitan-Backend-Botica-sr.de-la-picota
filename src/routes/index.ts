@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import authRoutes from './auth.routes';
 import usersRoutes from './users.routes';
+import validationRoutes from './validation.routes';
 
 const router = Router();
 
@@ -12,6 +13,9 @@ router.use('/auth', authRoutes);
 
 // Rutas de usuarios
 router.use('/users', usersRoutes);
+
+// Rutas de validación
+router.use('/', validationRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

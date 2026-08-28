@@ -31,6 +31,12 @@ export const config = {
   log: {
     level: process.env.LOG_LEVEL || 'info',
   },
+
+  // API Externa - APIS AQPFact
+  aqpfact: {
+    apiUrl: process.env.AQPFACT_API_URL || 'https://apis.aqpfact.pe/api/dni',
+    apiToken: process.env.AQPFACT_API_TOKEN || '',
+  },
 };
 
 // Validar configuración crítica

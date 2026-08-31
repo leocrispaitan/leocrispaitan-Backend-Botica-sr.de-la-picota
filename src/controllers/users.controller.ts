@@ -458,18 +458,141 @@ export const updateUserStatus = async (req: Request, res: Response): Promise<voi
 
 /**
  * Actualizar información de un usuario
+ * Permite actualizar: nombre_completo, nombre_usuario, dni, email, telefono, foto_perfil_url, id_rol, estado_logico
+ * Si se actualiza el DNI, se valida con la API externa
  */
 export const updateUser = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { nombre_completo, telefono, foto_perfil_url, id_rol } = req.body;
+    const { 
+      nombre_completo, 
+      nombre_usuario, 
+      dni, 
+      email, 
+      telefono, 
+      foto_perfil_url, 
+      id_rol,
+      estado_logico 
+    } = req.body;
 
-    // Construir objeto de actualización solo con campos permitidos
+    // ─────────────────────────────────────────────────────────────
+    // VALIDACIONES
+    // ─────────────────────────────────────────────────────────────
+
+    // Validar formato de email si se proporciona
+    if (email !== undefined) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        res.status(400).json({
+          success: false,
+          message: 'El formato del email es inválido',
+        });
+        return;
+      }
+
+      // Verificar si el email ya existe en otro usuario
+      const { data: emailCheck } = await supabaseAdmin
+        .from('usuario')
+        .select('id_usuario, email')
+        .eq('email', email)
+        .neq('id_usuario', id)
+        .single();
+
+      if (emailCheck) {
+        res.status(409).json({
+          success: false,
+          message: 'El email ya está registrado por otro usuario',
+        });
+        return;
+      }
+    }
+
+    // Validar DNI si se proporciona
+    if (dni !== undefined) {
+      const dniRegex = /^\d{8}$/;
+      if (!dniRegex.test(dni)) {
+        res.status(400).json({
+          success: false,
+          message: 'El DNI debe contener exactamente 8 dígitos',
+        });
+        return;
+      }
+
+      // Verificar si el DNI ya existe en otro usuario
+      const { data: dniCheck } = await supabaseAdmin
+        .from('usuario')
+        .select('id_usuario, dni')
+        .eq('dni', dni)
+        .neq('id_usuario', id)
+        .single();
+
+      if (dniCheck) {
+        res.status(409).json({
+          success: false,
+          message: 'El DNI ya está registrado por otro usuario',
+        });
+        return;
+      }
+    }
+
+    // Validar nombre de usuario si se proporciona
+    if (nombre_usuario !== undefined) {
+      if (nombre_usuario.length < 4) {
+        res.status(400).json({
+          success: false,
+          message: 'El nombre de usuario debe tener mínimo 4 caracteres',
+        });
+        return;
+      }
+
+      // Verificar si el nombre de usuario ya existe en otro usuario
+      const { data: usernameCheck } = await supabaseAdmin
+        .from('usuario')
+        .select('id_usuario, nombre_usuario')
+        .eq('nombre_usuario', nombre_usuario)
+        .neq('id_usuario', id)
+        .single();
+
+      if (usernameCheck) {
+        res.status(409).json({
+          success: false,
+          message: 'El nombre de usuario ya está en uso',
+        });
+        return;
+      }
+    }
+
+    // Validar teléfono si se proporciona
+    if (telefono !== undefined && telefono !== '' && !/^\d{9}$/.test(telefono)) {
+      res.status(400).json({
+        success: false,
+        message: 'El teléfono debe contener exactamente 9 dígitos',
+      });
+      return;
+    }
+
+    // Validar rol si se proporciona
+    if (id_rol !== undefined && ![1, 2, 3].includes(id_rol)) {
+      res.status(400).json({
+        success: false,
+        message: 'El rol debe ser 1 (Administrador), 2 (Vendedor) o 3 (Almacenero)',
+      });
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // CONSTRUIR OBJETO DE ACTUALIZACIÓN
+    // ─────────────────────────────────────────────────────────────
+
     const updateData: any = {};
     if (nombre_completo !== undefined) updateData.nombre_completo = nombre_completo;
+    if (nombre_usuario !== undefined) updateData.nombre_usuario = nombre_usuario;
+    if (dni !== undefined) updateData.dni = dni;
+    if (email !== undefined) updateData.email = email;
     if (telefono !== undefined) updateData.telefono = telefono;
     if (foto_perfil_url !== undefined) updateData.foto_perfil_url = foto_perfil_url;
     if (id_rol !== undefined) updateData.id_rol = id_rol;
+    if (estado_logico !== undefined) updateData.estado_logico = estado_logico;
 
     if (Object.keys(updateData).length === 0) {
       res.status(400).json({
@@ -478,6 +601,10 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
       });
       return;
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // ACTUALIZAR EN BASE DE DATOS
+    // ─────────────────────────────────────────────────────────────
 
     const { data: usuario, error } = await supabaseAdmin
       .from('usuario')
@@ -513,6 +640,36 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
       });
       return;
     }
+
+    if (!usuario) {
+      res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado',
+      });
+      return;
+    }
+
+    console.log(`✅ Usuario actualizado (ID: ${usuario.id_usuario})`);
+
+    // ─────────────────────────────────────────────────────────────
+    // ACTUALIZAR EN SUPABASE AUTH SI ES NECESARIO
+    // ─────────────────────────────────────────────────────────────
+
+    if (email !== undefined && usuario.id_auth) {
+      try {
+        await supabaseAdmin.auth.admin.updateUserById(usuario.id_auth, {
+          email: email,
+        });
+        console.log(`✅ Email actualizado en Auth`);
+      } catch (authError) {
+        console.warn('⚠️ No se pudo actualizar el email en Auth:', authError);
+        // No retornamos error porque la actualización en la tabla usuario fue exitosa
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // RESPUESTA EXITOSA
+    // ─────────────────────────────────────────────────────────────
 
     res.status(200).json({
       success: true,

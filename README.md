@@ -43,9 +43,12 @@ El servidor estará disponible en: **http://localhost:5000**
 
 ## 📚 Documentación
 
-- **[📖 GUIA-RAPIDA-AUTH.md](./GUIA-RAPIDA-AUTH.md)** - Guía completa paso a paso
-- **[🔗 INTEGRACION-FRONTEND.md](./INTEGRACION-FRONTEND.md)** - Cómo conectar con React
-- **[📋 RESUMEN-CONFIGURACION.md](./RESUMEN-CONFIGURACION.md)** - Resumen técnico completo
+Ver toda la documentación organizada en: **[📁 docs/README.md](./docs/README.md)**
+
+**Documentos principales:**
+- **[📖 Guía Rápida de Auth](./docs/guides/guia-rapida-auth.md)** - Guía completa paso a paso
+- **[🔗 Integración Frontend](./docs/guides/integracion-frontend.md)** - Cómo conectar con React
+- **[📋 Resumen de Configuración](./docs/resumen-configuracion.md)** - Resumen técnico completo
 - **[🧪 Botica-API.postman_collection.json](./Botica-API.postman_collection.json)** - Colección Postman
 
 ---
@@ -237,18 +240,18 @@ CORS_ORIGIN=http://localhost:5173
 
 ```bash
 # 1. Ver guía completa de deployment
-# Archivo: DEPLOYMENT-RENDER.md
+# Archivo: docs/deployment/deployment-render.md
 
 # 2. Checklist rápido (30 minutos)
-# Archivo: QUICK-DEPLOYMENT-CHECKLIST.md
+# Archivo: docs/deployment/quick-deployment-checklist.md
 
 # 3. Verificar deployment
 node scripts/verify-deployment.js https://tu-backend.onrender.com
 ```
 
 **Archivos de Deployment:**
-- 📖 **[DEPLOYMENT-RENDER.md](./DEPLOYMENT-RENDER.md)** - Guía completa paso a paso
-- ✅ **[QUICK-DEPLOYMENT-CHECKLIST.md](./QUICK-DEPLOYMENT-CHECKLIST.md)** - Checklist de 30 minutos
+- 📖 **[DEPLOYMENT-RENDER.md](./docs/deployment/deployment-render.md)** - Guía completa paso a paso
+- ✅ **[QUICK-DEPLOYMENT-CHECKLIST.md](./docs/deployment/quick-deployment-checklist.md)** - Checklist de 30 minutos
 - 📝 **[render.yaml](./render.yaml)** - Configuración de Render
 
 **URLs en Producción:**

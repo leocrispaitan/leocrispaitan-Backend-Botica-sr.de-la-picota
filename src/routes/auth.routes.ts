@@ -5,6 +5,8 @@ import {
   getProfile,
   register,
   refreshToken,
+  forgotPassword,
+  resetPassword,
 } from '../controllers/auth.controller';
 import { authenticate, isAdmin } from '../middlewares/auth.middleware';
 
@@ -142,5 +144,19 @@ router.post('/register', authenticate, isAdmin, register);
  * @access  Public
  */
 router.post('/refresh', refreshToken);
+
+/**
+ * @route   POST /api/auth/forgot-password
+ * @desc    Solicitar restablecimiento de contraseña
+ * @access  Public
+ */
+router.post('/forgot-password', forgotPassword);
+
+/**
+ * @route   POST /api/auth/reset-password
+ * @desc    Restablecer contraseña
+ * @access  Public
+ */
+router.post('/reset-password', resetPassword);
 
 export default router;

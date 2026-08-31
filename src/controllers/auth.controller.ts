@@ -340,3 +340,127 @@ export const refreshToken = async (req: AuthRequest, res: Response) => {
     });
   }
 };
+
+/**
+ * Solicitar restablecimiento de contraseña
+ * POST /api/auth/forgot-password
+ */
+export const forgotPassword = async (req: AuthRequest, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'El email es requerido',
+      });
+    }
+
+    // Verificar si el usuario existe en nuestra base de datos
+    const { data: userData } = await supabaseAdmin
+      .from('usuario')
+      .select('email, estado_logico')
+      .eq('email', email)
+      .single();
+
+    // Por seguridad, siempre retornamos éxito aunque el usuario no exista
+    // Esto evita que se pueda verificar qué emails están registrados
+    if (!userData || !userData.estado_logico) {
+      return res.status(200).json({
+        success: true,
+        message: 'Si el correo existe, recibirás un enlace para restablecer tu contraseña',
+      });
+    }
+
+    // Enviar email de restablecimiento usando Supabase Auth
+    const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
+      redirectTo: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password`,
+    });
+
+    if (error) {
+      console.error('Error al enviar email de restablecimiento:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Error al enviar el correo de restablecimiento',
+        error: error.message,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Si el correo existe, recibirás un enlace para restablecer tu contraseña',
+    });
+  } catch (error: any) {
+    console.error('Error en forgotPassword:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al procesar la solicitud',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Restablecer contraseña
+ * POST /api/auth/reset-password
+ */
+export const resetPassword = async (req: AuthRequest, res: Response) => {
+  try {
+    const { access_token, new_password } = req.body;
+
+    if (!access_token || !new_password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token de acceso y nueva contraseña son requeridos',
+      });
+    }
+
+    // Validar requisitos de contraseña (incluyendo carácter especial requerido por Supabase)
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]).{8,}$/;
+    if (!passwordRegex.test(new_password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'La contraseña debe tener mínimo 8 caracteres, una mayúscula, una minúscula, un dígito y un carácter especial',
+      });
+    }
+
+    // Obtener el usuario desde el token de recuperación
+    const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(access_token);
+    
+    if (userError || !userData.user) {
+      console.error('Error al obtener usuario con token:', userError);
+      return res.status(400).json({
+        success: false,
+        message: 'Token inválido o expirado',
+        error: userError?.message,
+      });
+    }
+
+    // Actualizar contraseña usando el ID del usuario
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+      userData.user.id,
+      { password: new_password }
+    );
+
+    if (updateError) {
+      console.error('Error al actualizar contraseña:', updateError);
+      return res.status(400).json({
+        success: false,
+        message: 'Error al actualizar la contraseña',
+        error: updateError.message,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Contraseña actualizada exitosamente',
+    });
+  } catch (error: any) {
+    console.error('Error en resetPassword:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al restablecer la contraseña',
+      error: error.message,
+    });
+  }
+};

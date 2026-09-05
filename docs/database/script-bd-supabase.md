@@ -284,10 +284,16 @@ create table inventario_lote (
     costo_unitario_compra decimal(10,2) not null check (costo_unitario_compra >= 0),
     stock_lote int not null check (stock_lote >= 0),
     ubicacion_estante varchar(50),
+    estado_logico boolean not null default true,
     constraint fk_lote_producto foreign key (id_producto)
         references producto(id_producto) on update cascade on delete restrict,
     constraint uq_producto_lote unique (id_producto, numero_lote)
 );
+
+-- Nota: si la tabla ya fue creada sin la columna estado_logico, ejecutar:
+--   alter table inventario_lote add column estado_logico boolean not null default true;
+-- Y luego recrear la vista vista_stock_producto (ver sección de vistas)
+-- para que el stock de productos no cuente los lotes desactivados.
 
 -- =====================================================================
 -- 11. tabla venta
@@ -447,7 +453,7 @@ select
         then true else false
     end as alerta_stock_bajo
 from producto p
-left join inventario_lote il on il.id_producto = p.id_producto
+left join inventario_lote il on il.id_producto = p.id_producto and il.estado_logico = true
 group by p.id_producto, p.nombre_comercial, p.stock_minimo_alerta;
 
 create view vista_registro_sanitario_vigente as

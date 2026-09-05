@@ -2,6 +2,8 @@ import { Router } from 'express';
 import authRoutes from './auth.routes';
 import usersRoutes from './users.routes';
 import validationRoutes from './validation.routes';
+import productsRoutes from './products.routes';
+import categoriesRoutes from './categories.routes';
 
 const router = Router();
 
@@ -16,6 +18,12 @@ router.use('/users', usersRoutes);
 
 // Rutas de validación
 router.use('/', validationRoutes);
+
+// Rutas de productos
+router.use('/products', productsRoutes);
+
+// Rutas de categorías
+router.use('/categories', categoriesRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

@@ -4,6 +4,7 @@ import usersRoutes from './users.routes';
 import validationRoutes from './validation.routes';
 import productsRoutes from './products.routes';
 import categoriesRoutes from './categories.routes';
+import lotesRoutes from './lotes.routes';
 
 const router = Router();
 
@@ -24,6 +25,9 @@ router.use('/products', productsRoutes);
 
 // Rutas de categorías
 router.use('/categories', categoriesRoutes);
+
+// Rutas de lotes
+router.use('/lotes', lotesRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

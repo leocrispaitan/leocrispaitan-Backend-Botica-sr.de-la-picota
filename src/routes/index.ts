@@ -5,6 +5,7 @@ import validationRoutes from './validation.routes';
 import productsRoutes from './products.routes';
 import categoriesRoutes from './categories.routes';
 import lotesRoutes from './lotes.routes';
+import purchasesRoutes from './purchases.routes';
 
 const router = Router();
 
@@ -28,6 +29,9 @@ router.use('/categories', categoriesRoutes);
 
 // Rutas de lotes
 router.use('/lotes', lotesRoutes);
+
+// Rutas de compras
+router.use('/purchases', purchasesRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

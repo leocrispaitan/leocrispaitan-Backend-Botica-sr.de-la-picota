@@ -11,6 +11,7 @@ import formasFarmaceuticasRoutes from './formasFarmaceuticas.routes';
 import viasAdministracionRoutes from './viasAdministracion.routes';
 import laboratoriosRoutes from './laboratorios.routes';
 import metodosPagoRoutes from './metodosPago.routes';
+import reportesRoutes from './reportes.routes';
 
 const router = Router();
 
@@ -52,6 +53,9 @@ router.use('/laboratorios', laboratoriosRoutes);
 
 // Rutas de métodos de pago
 router.use('/metodos-pago', metodosPagoRoutes);
+
+// Rutas de reportes
+router.use('/reportes', reportesRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

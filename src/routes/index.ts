@@ -7,6 +7,7 @@ import categoriesRoutes from './categories.routes';
 import lotesRoutes from './lotes.routes';
 import purchasesRoutes from './purchases.routes';
 import suppliersRoutes from './suppliers.routes';
+import formasFarmaceuticasRoutes from './formasFarmaceuticas.routes';
 
 const router = Router();
 
@@ -36,6 +37,9 @@ router.use('/purchases', purchasesRoutes);
 
 // Rutas de proveedores
 router.use('/suppliers', suppliersRoutes);
+
+// Rutas de formas farmacéuticas
+router.use('/formas-farmaceuticas', formasFarmaceuticasRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

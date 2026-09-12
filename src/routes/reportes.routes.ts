@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getReporteVentas } from '../controllers/reportes.controller';
+import { getReporteVentas, getReporteInventario } from '../controllers/reportes.controller';
 import { authenticate } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -14,5 +14,13 @@ router.use(authenticate);
  * @access  Private (requiere autenticación)
  */
 router.get('/ventas', getReporteVentas);
+
+/**
+ * @route   GET /api/v1/reportes/inventario
+ * @desc    Reporte de inventario (valorización, estados de stock, lotes y movimientos)
+ * @query   desde (yyyy-mm-dd) | hasta (yyyy-mm-dd) | opcionales (rango de movimientos)
+ * @access  Private (requiere autenticación)
+ */
+router.get('/inventario', getReporteInventario);
 
 export default router;

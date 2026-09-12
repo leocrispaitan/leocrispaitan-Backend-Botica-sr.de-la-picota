@@ -439,3 +439,575 @@ export const getReporteVentas = async (req: Request, res: Response): Promise<voi
     });
   }
 };
+
+/* ═════════════════════════════════════════════════════════════════════
+ *  REPORTE DE INVENTARIO
+ * ═════════════════════════════════════════════════════════════════════ */
+
+interface ProductoDoc {
+  id_producto: number;
+  nombre_comercial: string;
+  nombre_generico: string | null;
+  unidad_medida: string | null;
+  precio_venta: number;
+  costo_referencial: number;
+  stock_minimo_alerta: number;
+  id_categoria: number | null;
+  id_proveedor: number | null;
+}
+
+interface CategoriaDoc {
+  id_categoria: number;
+  nombre_categoria: string;
+}
+
+interface LoteDoc {
+  id_inventario: number;
+  id_producto: number;
+  numero_lote: string | null;
+  fecha_vencimiento: string | null;
+  fecha_ingreso: string | null;
+  costo_unitario_compra: number;
+  stock_lote: number;
+  ubicacion_estante: string | null;
+}
+
+interface MovimientoDoc {
+  id_movimiento: number;
+  tipo_movimiento: string;
+  fecha_hora: string;
+}
+
+interface DetalleMovimientoDoc {
+  id_movimiento: number;
+  cantidad: number;
+  costo_unitario: number;
+}
+
+interface ProductoConStock {
+  id_producto: number;
+  nombre: string;
+  generico: string | null;
+  categoria: string;
+  id_categoria: number | null;
+  precio_venta: number;
+  minimo: number;
+  stock: number;
+  valor_inventario: number;
+  valor_potencial: number;
+  estado: 'OK' | 'BAJO' | 'CRITICO' | 'AGOTADO';
+  ratio: number;
+}
+
+/** Patrón por estado de stock (consistentes con el frontend). */
+const ORDEN_ESTADOS_STOCK = ['OK', 'BAJO', 'CRITICO', 'AGOTADO'];
+
+const COLOR_ESTADOS_STOCK: Record<string, string> = {
+  OK: '#10b981',
+  BAJO: '#f59e0b',
+  CRITICO: '#f43f5e',
+  AGOTADO: '#64748b',
+};
+
+const etiquetaMedia = (dateStr: string): string => {
+  const d = new Date(`${dateStr}T00:00:00`);
+  return `${d.getDate()} ${MESES_CORTOS[d.getMonth()]}`;
+};
+
+const fechaKeyLote = (iso: string | null): string | null => {
+  if (!iso) return null;
+  const [fechaHora, resto] = iso.includes('T') ? iso.split('T') : [iso, ''];
+  const fecha = (resto ? fechaHora : iso).slice(0, 10);
+  const match = /^\d{4}-\d{2}-\d{2}$/.test(fecha);
+  return match ? fecha : null;
+};
+
+/** Clasificar el estado de stock de un producto según stock vs mínimo. */
+const estadoStock = (stock: number, minimo: number): 'OK' | 'BAJO' | 'CRITICO' | 'AGOTADO' => {
+  const min = Math.max(1, minimo);
+  if (stock <= 0) return 'AGOTADO';
+  if (stock <= Math.ceil(min * 0.5)) return 'CRITICO';
+  if (stock <= min) return 'BAJO';
+  return 'OK';
+};
+
+const fetchProductos = async (): Promise<ProductoDoc[]> => {
+  const { data, error } = await supabaseAdmin
+    .from('producto')
+    .select(
+      'id_producto, nombre_comercial, nombre_generico, unidad_medida, precio_venta, costo_referencial, stock_minimo_alerta, id_categoria, id_proveedor'
+    )
+    .eq('estado_logico', true);
+
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((p) => ({
+    id_producto: p.id_producto,
+    nombre_comercial: p.nombre_comercial,
+    nombre_generico: p.nombre_generico,
+    unidad_medida: p.unidad_medida,
+    precio_venta: Number(p.precio_venta),
+    costo_referencial: Number(p.costo_referencial),
+    stock_minimo_alerta: Number(p.stock_minimo_alerta),
+    id_categoria: p.id_categoria,
+    id_proveedor: p.id_proveedor,
+  }));
+};
+
+const fetchCategorias = async (): Promise<Map<number, string>> => {
+  const { data, error } = await supabaseAdmin
+    .from('categoria')
+    .select('id_categoria, nombre_categoria')
+    .eq('estado_logico', true);
+
+  if (error) throw new Error(error.message);
+
+  return new Map((data || []).map((c: CategoriaDoc) => [c.id_categoria, c.nombre_categoria]));
+};
+
+const fetchLotes = async (): Promise<LoteDoc[]> => {
+  const { data, error } = await supabaseAdmin
+    .from('inventario_lote')
+    .select(
+      'id_inventario, id_producto, numero_lote, fecha_vencimiento, fecha_ingreso, costo_unitario_compra, stock_lote, ubicacion_estante'
+    );
+
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((l) => ({
+    id_inventario: l.id_inventario,
+    id_producto: l.id_producto,
+    numero_lote: l.numero_lote,
+    fecha_vencimiento: l.fecha_vencimiento,
+    fecha_ingreso: l.fecha_ingreso,
+    costo_unitario_compra: Number(l.costo_unitario_compra),
+    stock_lote: Number(l.stock_lote),
+    ubicacion_estante: l.ubicacion_estante,
+  }));
+};
+
+const fetchMovimientosPeriodo = async (desde: string | null, hasta: string | null): Promise<MovimientoDoc[]> => {
+  let query = supabaseAdmin.from('movimiento').select('id_movimiento, tipo_movimiento, fecha_hora');
+
+  if (desde) query = query.gte('fecha_hora', `${desde}T00:00:00`);
+  if (hasta) query = query.lte('fecha_hora', `${hasta}T23:59:59`);
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((m) => ({
+    id_movimiento: m.id_movimiento,
+    tipo_movimiento: m.tipo_movimiento,
+    fecha_hora: m.fecha_hora,
+  }));
+};
+
+const fetchDetalleMovimientos = async (ids: number[]): Promise<DetalleMovimientoDoc[]> => {
+  if (ids.length === 0) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from('detalle_movimiento')
+    .select('id_movimiento, cantidad, costo_unitario')
+    .in('id_movimiento', ids);
+
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((d) => ({
+    id_movimiento: d.id_movimiento,
+    cantidad: Number(d.cantidad),
+    costo_unitario: Number(d.costo_unitario),
+  }));
+};
+
+const TIPOS_ENTRADA = new Set(['COMPRA', 'DEVOLUCION']);
+
+const esEntrada = (tipo: string): boolean => TIPOS_ENTRADA.has(tipo.toUpperCase());
+
+/**
+ * GET /api/v1/reportes/inventario
+ *
+ * Parámetros opcionales:
+ *  - desde: yyyy-mm-dd  (filtra el período de movimientos)
+ *  - hasta: yyyy-mm-dd  (filtra el período de movimientos)
+ *
+ * La valorización del stock es un corte al momento actual; el rango solo
+ * afecta la sección de movimientos y la evolución del stock.
+ */
+export const getReporteInventario = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const rango = parseRango(req.query.desde, req.query.hasta);
+
+    if (!rango) {
+      res.status(400).json({
+        success: false,
+        message: 'El rango de fechas no es válido. Usa formato yyyy-mm-dd y hasta >= desde.',
+        error: ['Rango de fechas inválido.'],
+      });
+      return;
+    }
+
+    const { desde, hasta } = rango;
+
+    // ─── Datos base ───
+    const [productosRaw, categoriaMap, lotes] = await Promise.all([
+      fetchProductos(),
+      fetchCategorias(),
+      fetchLotes(),
+    ]);
+
+    const hoy = toYMD(new Date());
+    const hoyMs = new Date(`${hoy}T00:00:00`).getTime();
+
+    const lotesConStock = lotes.filter((l) => l.stock_lote > 0);
+
+    const stockPorProducto = new Map<number, number>();
+    lotesConStock.forEach((l) => {
+      stockPorProducto.set(l.id_producto, (stockPorProducto.get(l.id_producto) || 0) + l.stock_lote);
+    });
+
+    const nombreCategoria = (id: number | null): string => {
+      const nombre = id == null ? null : categoriaMap.get(id);
+      return (nombre || 'SIN CATEGORÍA').toUpperCase();
+    };
+
+    // ─── Productos con stock y valorización ───
+    const productos: ProductoConStock[] = productosRaw.map((p) => {
+      const stock = stockPorProducto.get(p.id_producto) || 0;
+      let valorInventario = 0;
+      let valorPotencial = 0;
+      lotesConStock
+        .filter((l) => l.id_producto === p.id_producto)
+        .forEach((l) => {
+          valorInventario += l.stock_lote * l.costo_unitario_compra;
+          valorPotencial += l.stock_lote * p.precio_venta;
+        });
+
+      return {
+        id_producto: p.id_producto,
+        nombre: p.nombre_comercial,
+        generico: p.nombre_generico,
+        categoria: nombreCategoria(p.id_categoria),
+        id_categoria: p.id_categoria,
+        precio_venta: p.precio_venta,
+        minimo: p.stock_minimo_alerta,
+        stock,
+        valor_inventario: formatoNumero(valorInventario),
+        valor_potencial: formatoNumero(valorPotencial),
+        estado: estadoStock(stock, p.stock_minimo_alerta),
+        ratio: stock > 0 ? stock / Math.max(1, p.stock_minimo_alerta) : 0,
+      };
+    });
+
+    // ─── KPIs ───
+    const unidadesTotales = lotesConStock.reduce((sum, l) => sum + l.stock_lote, 0);
+    const valorInventario = lotesConStock.reduce((sum, l) => sum + l.stock_lote * l.costo_unitario_compra, 0);
+    const valorPotencial = productos.reduce((sum, p) => sum + p.valor_potencial, 0);
+
+    const estados = new Map<string, number>();
+    productos.forEach((p) => {
+      estados.set(p.estado, (estados.get(p.estado) || 0) + 1);
+    });
+
+    // ─── Lotes próximos a vencer ───
+    const diasRestantes = (fechaVenc: string | null): number | null => {
+      const fecha = fechaKeyLote(fechaVenc);
+      if (!fecha) return null;
+      const ms = new Date(`${fecha}T00:00:00`).getTime() - hoyMs;
+      return Math.ceil(ms / 86400000);
+    };
+
+    const expirados = lotesConStock.filter((l) => {
+      const dias = diasRestantes(l.fecha_vencimiento);
+      return dias !== null && dias < 0;
+    });
+    const vencer30 = lotesConStock.filter((l) => {
+      const dias = diasRestantes(l.fecha_vencimiento);
+      return dias !== null && dias >= 0 && dias <= 30;
+    });
+    const vencer60 = lotesConStock.filter((l) => {
+      const dias = diasRestantes(l.fecha_vencimiento);
+      return dias !== null && dias >= 0 && dias <= 60;
+    });
+    const vencer90 = lotesConStock.filter((l) => {
+      const dias = diasRestantes(l.fecha_vencimiento);
+      return dias !== null && dias >= 0 && dias <= 90;
+    });
+
+    const nombreProducto = new Map(productosRaw.map((p) => [p.id_producto, p.nombre_comercial]));
+
+    const lotes_por_vencer = vencer90
+      .map((l) => ({
+        id_inventario: l.id_inventario,
+        numero_lote: l.numero_lote || '—',
+        producto: nombreProducto.get(l.id_producto) || `Producto #${l.id_producto}`,
+        fecha_vencimiento: fechaKeyLote(l.fecha_vencimiento) || '—',
+        dias: diasRestantes(l.fecha_vencimiento) || 0,
+        stock: l.stock_lote,
+        ubicacion: l.ubicacion_estante || '—',
+        urgencia: diasRestantes(l.fecha_vencimiento) !== null && (diasRestantes(l.fecha_vencimiento) as number) <= 30 ? 'URGENTE' : 'PROXIMO',
+      }))
+      .sort((a, b) => a.dias - b.dias)
+      .slice(0, 20);
+
+    const lotes_vencidos = expirados
+      .map((l) => ({
+        id_inventario: l.id_inventario,
+        numero_lote: l.numero_lote || '—',
+        producto: nombreProducto.get(l.id_producto) || `Producto #${l.id_producto}`,
+        fecha_vencimiento: fechaKeyLote(l.fecha_vencimiento) || '—',
+        dias: diasRestantes(l.fecha_vencimiento) || 0,
+        stock: l.stock_lote,
+        ubicacion: l.ubicacion_estante || '—',
+      }))
+      .sort((a, b) => a.dias - b.dias)
+      .slice(0, 20);
+
+    // ─── Por estado ───
+    const por_estado = ORDEN_ESTADOS_STOCK.map((estado) => {
+      const productosEnEstado = productos.filter((p) => p.estado === estado);
+      return {
+        estado,
+        productos: productosEnEstado.length,
+        unidades: Math.round(productosEnEstado.reduce((sum, p) => sum + p.stock, 0)),
+        valor: formatoNumero(productosEnEstado.reduce((sum, p) => sum + p.valor_inventario, 0)),
+        porcentaje: productos.length > 0 ? redondear1((productosEnEstado.length / productos.length) * 100) : 0,
+      };
+    });
+
+    // ─── Por categoría ───
+    const categoriaMapResult = new Map<string, { productos: number; unidades: number; valor: number }>();
+    productos.forEach((p) => {
+      const actual = categoriaMapResult.get(p.categoria) || { productos: 0, unidades: 0, valor: 0 };
+      categoriaMapResult.set(p.categoria, {
+        productos: actual.productos + 1,
+        unidades: actual.unidades + p.stock,
+        valor: actual.valor + p.valor_inventario,
+      });
+    });
+
+    const por_categoria = Array.from(categoriaMapResult.entries())
+      .map(([categoria, datos]) => ({
+        categoria,
+        productos: datos.productos,
+        unidades: Math.round(datos.unidades),
+        valor: formatoNumero(datos.valor),
+        porcentaje: unidadesTotales > 0 ? redondear1((datos.unidades / unidadesTotales) * 100) : 0,
+      }))
+      .sort((a, b) => b.valor - a.valor);
+
+    // ─── Top por valor en inventario ───
+    const top_valor = [...productos]
+      .sort((a, b) => b.valor_inventario - a.valor_inventario)
+      .slice(0, 8)
+      .map((p) => ({
+        nombre: p.nombre,
+        categoria: p.categoria,
+        unidades: p.stock,
+        valor: p.valor_inventario,
+        potencial: p.valor_potencial,
+        margen: formatoNumero(p.valor_potencial - p.valor_inventario),
+      }));
+
+    // ─── Productos críticos ───
+    const productos_criticos = productos
+      .filter((p) => p.estado !== 'OK')
+      .sort((a, b) => a.ratio - b.ratio)
+      .slice(0, 12)
+      .map((p) => ({
+        id_producto: p.id_producto,
+        nombre: p.nombre,
+        categoria: p.categoria,
+        stock: p.stock,
+        minimo: p.minimo,
+        ratio: redondear1(p.ratio),
+        estado: p.estado,
+        valor: p.valor_inventario,
+      }));
+
+    // ─── Movimientos ───
+    const movimientos = await fetchMovimientosPeriodo(desde, hasta);
+    const detalleMovs = await fetchDetalleMovimientos(movimientos.map((m) => m.id_movimiento));
+
+    const movimientoFecha = (m: MovimientoDoc): string => {
+      const d = new Date(m.fecha_hora.replace(' ', 'T'));
+      return toYMD(d);
+    };
+
+    const unidadesPorMovimiento = new Map<number, number>();
+    detalleMovs.forEach((d) => {
+      unidadesPorMovimiento.set(d.id_movimiento, (unidadesPorMovimiento.get(d.id_movimiento) || 0) + d.cantidad);
+    });
+
+    const movimientosPorDia = new Map<string, { entradas: number; salidas: number }>();
+    let entradasTotales = 0;
+    let salidasTotales = 0;
+
+    movimientos.forEach((m) => {
+      const esEntrante = esEntrada(m.tipo_movimiento);
+      const unidades = unidadesPorMovimiento.get(m.id_movimiento) || 0;
+      const key = movimientoFecha(m);
+      const actual = movimientosPorDia.get(key) || { entradas: 0, salidas: 0 };
+
+      if (esEntrante) {
+        actual.entradas += unidades;
+        entradasTotales += unidades;
+      } else {
+        actual.salidas += unidades;
+        salidasTotales += unidades;
+      }
+
+      movimientosPorDia.set(key, actual);
+    });
+
+    let inicio: string;
+    let fin: string;
+
+    if (desde && hasta) {
+      inicio = desde;
+      fin = hasta;
+    } else {
+      const fechas = Array.from(movimientosPorDia.keys()).sort();
+      if (fechas.length === 0) {
+        inicio = hoy;
+        fin = hoy;
+      } else {
+        inicio = fechas[0];
+        fin = fechas[fechas.length - 1];
+      }
+    }
+
+    const serie_movimientos: Array<{
+      fecha: string;
+      etiqueta: string;
+      entradas: number;
+      salidas: number;
+      neto: number;
+    }> = [];
+
+    const serie_stock: Array<{
+      fecha: string;
+      etiqueta: string;
+      nivel: number;
+      entradas: number;
+      salidas: number;
+    }> = [];
+
+    let cursor = inicio;
+    let iteraciones = 0;
+    const maxDias = 370;
+    const netoPorDia: Array<{ fecha: string; neto: number }> = [];
+
+    while (cursor <= fin && iteraciones <= maxDias) {
+      const datosDia = movimientosPorDia.get(cursor) || { entradas: 0, salidas: 0 };
+      const neto = datosDia.entradas - datosDia.salidas;
+      netoPorDia.push({ fecha: cursor, neto });
+
+      serie_movimientos.push({
+        fecha: cursor,
+        etiqueta: etiquetaMedia(cursor),
+        entradas: datosDia.entradas,
+        salidas: datosDia.salidas,
+        neto,
+      });
+
+      if (cursor === fin) break;
+      cursor = addDays(cursor, 1);
+      iteraciones += 1;
+    }
+
+    // Construir serie_stock: nivel estimado de stock por día.
+    // Dado que el último día corresponde al stock actual, retroactivamente
+    // descontamos los movimientos posteriores a cada día.
+    let nivelBase = unidadesTotales;
+    const niveles: number[] = [];
+    for (let i = netoPorDia.length - 1; i >= 0; i--) {
+      niveles[i] = Math.max(0, Math.round(nivelBase));
+      nivelBase -= netoPorDia[i].neto;
+    }
+
+    netoPorDia.forEach((item, idx) => {
+      serie_stock.push({
+        fecha: item.fecha,
+        etiqueta: etiquetaMedia(item.fecha),
+        nivel: niveles[idx],
+        entradas: movimientosPorDia.get(item.fecha)?.entradas || 0,
+        salidas: movimientosPorDia.get(item.fecha)?.salidas || 0,
+      });
+    });
+
+    // ─── Por tipo de movimiento ───
+    const tipoMap = new Map<string, { movimientos: number; unidades: number }>();
+    movimientos.forEach((m) => {
+      const tipo = m.tipo_movimiento.toUpperCase();
+      const actual = tipoMap.get(tipo) || { movimientos: 0, unidades: 0 };
+      tipoMap.set(tipo, {
+        movimientos: actual.movimientos + 1,
+        unidades: actual.unidades + (unidadesPorMovimiento.get(m.id_movimiento) || 0),
+      });
+    });
+
+    const por_tipo_movimiento = Array.from(tipoMap.entries())
+      .map(([tipo, datos]) => ({
+        tipo,
+        movimientos: datos.movimientos,
+        unidades: Math.round(datos.unidades),
+      }))
+      .sort((a, b) => b.movimientos - a.movimientos);
+
+    // ─── KPIs finales ───
+    const kpis = {
+      total_productos: productos.length,
+      total_categorias: categoriaMap.size,
+      total_proveedores: new Set(productosRaw.map((p) => p.id_proveedor).filter((id): id is number => id != null)).size,
+      unidades_totales: Math.round(unidadesTotales),
+      lotes_total: lotesConStock.length,
+      valor_inventario: formatoNumero(valorInventario),
+      valor_potencial: formatoNumero(valorPotencial),
+      margen_potencial: formatoNumero(valorPotencial - valorInventario),
+      stock_ok: estados.get('OK') || 0,
+      stock_bajo: estados.get('BAJO') || 0,
+      stock_critico: estados.get('CRITICO') || 0,
+      stock_agotado: estados.get('AGOTADO') || 0,
+      alertas_stock: (estados.get('BAJO') || 0) + (estados.get('CRITICO') || 0) + (estados.get('AGOTADO') || 0),
+      lotes_vencen_30: vencer30.length,
+      lotes_vencen_60: vencer60.length,
+      lotes_vencen_90: vencer90.length,
+      lotes_vencidos: expirados.length,
+      entradas_totales: Math.round(entradasTotales),
+      salidas_totales: Math.round(salidasTotales),
+      valor_promedio_producto: productos.length > 0 ? formatoNumero(valorPotencial / productos.length) : 0,
+    };
+
+    res.status(200).json({
+      success: true,
+      message: 'Reporte de inventario obtenido exitosamente',
+      data: {
+        rango: {
+          desde,
+          hasta,
+          periodo_completo: !desde && !hasta,
+        },
+        fecha_corte: hoy,
+        kpis,
+        por_estado,
+        por_categoria,
+        top_valor,
+        productos_criticos,
+        lotes_por_vencer,
+        lotes_vencidos,
+        serie_movimientos,
+        serie_stock,
+        por_tipo_movimiento,
+        paleta_estados: COLOR_ESTADOS_STOCK,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Error fetching reporte de inventario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor al generar el reporte de inventario',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};

@@ -8,6 +8,7 @@ import lotesRoutes from './lotes.routes';
 import purchasesRoutes from './purchases.routes';
 import suppliersRoutes from './suppliers.routes';
 import formasFarmaceuticasRoutes from './formasFarmaceuticas.routes';
+import viasAdministracionRoutes from './viasAdministracion.routes';
 
 const router = Router();
 
@@ -40,6 +41,9 @@ router.use('/suppliers', suppliersRoutes);
 
 // Rutas de formas farmacéuticas
 router.use('/formas-farmaceuticas', formasFarmaceuticasRoutes);
+
+// Rutas de vías de administración
+router.use('/vias-administracion', viasAdministracionRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

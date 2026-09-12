@@ -6,6 +6,7 @@ import productsRoutes from './products.routes';
 import categoriesRoutes from './categories.routes';
 import lotesRoutes from './lotes.routes';
 import purchasesRoutes from './purchases.routes';
+import suppliersRoutes from './suppliers.routes';
 
 const router = Router();
 
@@ -32,6 +33,9 @@ router.use('/lotes', lotesRoutes);
 
 // Rutas de compras
 router.use('/purchases', purchasesRoutes);
+
+// Rutas de proveedores
+router.use('/suppliers', suppliersRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

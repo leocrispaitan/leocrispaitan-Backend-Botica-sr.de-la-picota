@@ -1011,3 +1011,392 @@ export const getReporteInventario = async (req: Request, res: Response): Promise
     });
   }
 };
+
+/* ═════════════════════════════════════════════════════════════════════
+ *  REPORTE DE MOVIMIENTOS
+ * ═════════════════════════════════════════════════════════════════════ */
+
+interface MovimientoReporteDoc {
+  id_movimiento: number;
+  tipo_movimiento: string;
+  fecha_hora: string;
+  id_usuario: number | null;
+  total: number | null;
+  usuario: { id_usuario: number; nombre_completo: string } | null;
+}
+
+interface DetalleMovimientoReporteDoc {
+  id_movimiento: number;
+  cantidad: number;
+  costo_unitario: number;
+  producto: { id_producto: number; nombre_comercial: string } | null;
+}
+
+const fetchMovimientosReporte = async (
+  desde: string | null,
+  hasta: string | null
+): Promise<MovimientoReporteDoc[]> => {
+  let query = supabaseAdmin
+    .from('movimiento')
+    .select(
+      'id_movimiento, tipo_movimiento, fecha_hora, id_usuario, total, usuario (id_usuario, nombre_completo)'
+    )
+    .order('fecha_hora', { ascending: true });
+
+  if (desde) query = query.gte('fecha_hora', `${desde}T00:00:00`);
+  if (hasta) query = query.lte('fecha_hora', `${hasta}T23:59:59`);
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((m) => {
+    const usuario = pick(m.usuario) as { id_usuario: number; nombre_completo: string } | null;
+    return {
+      id_movimiento: m.id_movimiento,
+      tipo_movimiento: m.tipo_movimiento,
+      fecha_hora: m.fecha_hora,
+      id_usuario: m.id_usuario,
+      total: Number(m.total) || 0,
+      usuario,
+    };
+  });
+};
+
+const fetchDetalleMovimientoReporte = async (ids: number[]): Promise<DetalleMovimientoReporteDoc[]> => {
+  if (ids.length === 0) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from('detalle_movimiento')
+    .select('id_movimiento, cantidad, costo_unitario, producto (id_producto, nombre_comercial)')
+    .in('id_movimiento', ids);
+
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((d) => {
+    const producto = pick(d.producto) as { id_producto: number; nombre_comercial: string } | null;
+    return {
+      id_movimiento: d.id_movimiento,
+      cantidad: Number(d.cantidad),
+      costo_unitario: Number(d.costo_unitario),
+      producto,
+    };
+  });
+};
+
+/**
+ * GET /api/v1/reportes/movimientos
+ *
+ * Parámetros opcionales:
+ *  - desde: yyyy-mm-dd
+ *  - hasta: yyyy-mm-dd
+ *
+ * Si no se envían, se reporta todo el historial de movimientos registrado.
+ */
+export const getReporteMovimientos = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const rango = parseRango(req.query.desde, req.query.hasta);
+
+    if (!rango) {
+      res.status(400).json({
+        success: false,
+        message: 'El rango de fechas no es válido. Usa formato yyyy-mm-dd y hasta >= desde.',
+        error: ['Rango de fechas inválido.'],
+      });
+      return;
+    }
+
+    const { desde, hasta } = rango;
+
+    // ─── Movimientos del período ───
+    const movimientos = await fetchMovimientosReporte(desde, hasta);
+    const detalle = await fetchDetalleMovimientoReporte(movimientos.map((m) => m.id_movimiento));
+
+    const unidadesPorMovimiento = new Map<number, number>();
+    const valorPorMovimiento = new Map<number, number>();
+    detalle.forEach((d) => {
+      unidadesPorMovimiento.set(d.id_movimiento, (unidadesPorMovimiento.get(d.id_movimiento) || 0) + d.cantidad);
+      valorPorMovimiento.set(d.id_movimiento, (valorPorMovimiento.get(d.id_movimiento) || 0) + d.cantidad * d.costo_unitario);
+    });
+
+    // ─── KPIs ───
+    const unidadesMovidas = Array.from(unidadesPorMovimiento.values()).reduce((a, b) => a + b, 0);
+    const valorTotal = Array.from(valorPorMovimiento.values()).reduce((a, b) => a + b, 0);
+    const usuariosActivos = new Set(
+      movimientos.filter((m) => m.id_usuario != null).map((m) => m.id_usuario)
+    ).size;
+    const productosMovidos = new Set(detalle.map((d) => d.producto?.id_producto).filter((id) => id != null)).size;
+
+    const hoy = toYMD(new Date());
+    const movimientosHoy = movimientos.filter((m) => {
+      const d = new Date(m.fecha_hora.replace(' ', 'T'));
+      return toYMD(d) === hoy;
+    }).length;
+
+    // ─── Agrupación por tipo ───
+    let entradasMov = 0;
+    let salidasMov = 0;
+    let entradasUnid = 0;
+    let salidasUnid = 0;
+    let entradasValor = 0;
+    let salidasValor = 0;
+
+    const tipoMap = new Map<string, { movimientos: number; unidades: number; valor: number }>();
+    movimientos.forEach((m) => {
+      const tipo = m.tipo_movimiento.toUpperCase();
+      const unidades = unidadesPorMovimiento.get(m.id_movimiento) || 0;
+      const valor = valorPorMovimiento.get(m.id_movimiento) || 0;
+
+      const actual = tipoMap.get(tipo) || { movimientos: 0, unidades: 0, valor: 0 };
+      tipoMap.set(tipo, {
+        movimientos: actual.movimientos + 1,
+        unidades: actual.unidades + unidades,
+        valor: actual.valor + valor,
+      });
+
+      if (esEntrada(tipo)) {
+        entradasMov += 1;
+        entradasUnid += unidades;
+        entradasValor += valor;
+      } else {
+        salidasMov += 1;
+        salidasUnid += unidades;
+        salidasValor += valor;
+      }
+    });
+
+    const ordenTipos = ['COMPRA', 'VENTA', 'AJUSTE', 'DEVOLUCION', 'MERMA', 'TRANSFERENCIA'];
+    const por_tipo = ordenTipos
+      .filter((tipo) => tipoMap.has(tipo))
+      .map((tipo) => {
+        const datos = tipoMap.get(tipo)!;
+        return {
+          tipo,
+          movimientos: datos.movimientos,
+          unidades: Math.round(datos.unidades),
+          valor: formatoNumero(datos.valor),
+          porcentaje: movimientos.length > 0 ? redondear1((datos.movimientos / movimientos.length) * 100) : 0,
+        };
+      });
+
+    // ─── Serie diaria ───
+    const fechaKeyMov = (iso: string): string => {
+      const d = new Date(iso.replace(' ', 'T'));
+      return toYMD(d);
+    };
+
+    const porDia = new Map<string, { entradas: number; salidas: number; movimientos: number; valor: number }>();
+    movimientos.forEach((m) => {
+      const key = fechaKeyMov(m.fecha_hora);
+      const actual = porDia.get(key) || { entradas: 0, salidas: 0, movimientos: 0, valor: 0 };
+      const unidades = unidadesPorMovimiento.get(m.id_movimiento) || 0;
+      const valor = valorPorMovimiento.get(m.id_movimiento) || 0;
+      if (esEntrada(m.tipo_movimiento)) {
+        actual.entradas += unidades;
+      } else {
+        actual.salidas += unidades;
+      }
+      actual.movimientos += 1;
+      actual.valor += valor;
+      porDia.set(key, actual);
+    });
+
+    let inicio: string;
+    let fin: string;
+
+    if (desde && hasta) {
+      inicio = desde;
+      fin = hasta;
+    } else {
+      const fechas = Array.from(porDia.keys()).sort();
+      if (fechas.length === 0) {
+        inicio = hoy;
+        fin = hoy;
+      } else {
+        inicio = fechas[0];
+        fin = fechas[fechas.length - 1];
+      }
+    }
+
+    const serie_diaria: Array<{ fecha: string; etiqueta: string; entradas: number; salidas: number; neto: number; valor: number }> = [];
+
+    let cursor = inicio;
+    let iteraciones = 0;
+    const maxDias = 370;
+
+    while (cursor <= fin && iteraciones <= maxDias) {
+      const datos = porDia.get(cursor) || { entradas: 0, salidas: 0, movimientos: 0, valor: 0 };
+      serie_diaria.push({
+        fecha: cursor,
+        etiqueta: etiquetaCorta(cursor),
+        entradas: datos.entradas,
+        salidas: datos.salidas,
+        neto: datos.entradas - datos.salidas,
+        valor: formatoNumero(datos.valor),
+      });
+      if (cursor === fin) break;
+      cursor = addDays(cursor, 1);
+      iteraciones += 1;
+    }
+
+    // ─── Por hora ───
+    const horaMap = new Map<string, { movimientos: number; entradas: number; salidas: number }>();
+    movimientos.forEach((m) => {
+      const d = new Date(m.fecha_hora.replace(' ', 'T'));
+      const key = `${d.getHours().toString().padStart(2, '0')}:00`;
+      const actual = horaMap.get(key) || { movimientos: 0, entradas: 0, salidas: 0 };
+      const unidades = unidadesPorMovimiento.get(m.id_movimiento) || 0;
+      if (esEntrada(m.tipo_movimiento)) actual.entradas += unidades;
+      else actual.salidas += unidades;
+      actual.movimientos += 1;
+      horaMap.set(key, actual);
+    });
+
+    const por_hora = Array.from(horaMap.entries())
+      .map(([hora, datos]) => ({
+        hora,
+        movimientos: datos.movimientos,
+        entradas: Math.round(datos.entradas),
+        salidas: Math.round(datos.salidas),
+      }))
+      .sort((a, b) => a.hora.localeCompare(b.hora));
+
+    // ─── Top productos movidos ───
+    const productoMap = new Map<string, { unidades: number; movimientos: number; valor: number }>();
+    const productoPorMov = new Map<string, Set<number>>();
+    detalle.forEach((d) => {
+      if (!d.producto) return;
+      const nombre = d.producto.nombre_comercial;
+      const actual = productoMap.get(nombre) || { unidades: 0, movimientos: 0, valor: 0 };
+      actual.unidades += d.cantidad;
+      actual.valor += d.cantidad * d.costo_unitario;
+      productoMap.set(nombre, actual);
+      if (!productoPorMov.has(nombre)) productoPorMov.set(nombre, new Set());
+      productoPorMov.get(nombre)!.add(d.id_movimiento);
+    });
+
+    const top_productos = Array.from(productoMap.entries())
+      .map(([nombre, datos]) => ({
+        nombre,
+        unidades: Math.round(datos.unidades),
+        movimientos: productoPorMov.get(nombre)?.size || 0,
+        valor: formatoNumero(datos.valor),
+        porcentaje: valorTotal > 0 ? redondear1((datos.valor / valorTotal) * 100) : 0,
+      }))
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 8);
+
+    // ─── Usuarios con más actividad ───
+    const usuarioMap = new Map<string, { movimientos: number; unidades: number }>();
+    movimientos.forEach((m) => {
+      const nombre = m.usuario?.nombre_completo || 'SIN USUARIO';
+      const unidades = unidadesPorMovimiento.get(m.id_movimiento) || 0;
+      const actual = usuarioMap.get(nombre) || { movimientos: 0, unidades: 0 };
+      actual.movimientos += 1;
+      actual.unidades += unidades;
+      usuarioMap.set(nombre, actual);
+    });
+
+    const usuarios_activos = Array.from(usuarioMap.entries())
+      .map(([nombre, datos]) => ({
+        nombre,
+        movimientos: datos.movimientos,
+        unidades: Math.round(datos.unidades),
+      }))
+      .sort((a, b) => b.movimientos - a.movimientos)
+      .slice(0, 5);
+
+    // ─── Movimientos recientes ───
+    const movimientosRecientes = [...movimientos]
+      .sort((a, b) => (a.fecha_hora < b.fecha_hora ? 1 : -1))
+      .slice(0, 8)
+      .map((m) => ({
+        id_movimiento: m.id_movimiento,
+        tipo_movimiento: m.tipo_movimiento.toUpperCase(),
+        fecha_hora: m.fecha_hora,
+        usuario: m.usuario?.nombre_completo || '—',
+        unidades: Math.round(unidadesPorMovimiento.get(m.id_movimiento) || 0),
+        valor: formatoNumero(valorPorMovimiento.get(m.id_movimiento) || 0),
+        total_registro: m.total,
+      }));
+
+    // ─── Crecimiento vs período anterior ───
+    let crecimiento = {
+      movimientos: null as number | null,
+      unidades: null as number | null,
+      valor: null as number | null,
+    };
+
+    if (desde && hasta) {
+      const dias = daysBetweenInclusive(desde, hasta);
+      const prevHasta = addDays(desde, -1);
+      const prevDesde = addDays(prevHasta, -(dias - 1));
+
+      const prevMov = await fetchMovimientosReporte(prevDesde, prevHasta);
+      const prevDet = await fetchDetalleMovimientoReporte(prevMov.map((m) => m.id_movimiento));
+
+      const prevUnidades = prevDet.reduce((sum, d) => sum + d.cantidad, 0);
+      const prevValor = prevDet.reduce((sum, d) => sum + d.cantidad * d.costo_unitario, 0);
+
+      const pct = (actual: number, anterior: number): number | null =>
+        anterior > 0 ? ((actual - anterior) / anterior) * 100 : null;
+
+      crecimiento = {
+        movimientos: redondear1(pct(movimientos.length, prevMov.length)),
+        unidades: redondear1(pct(unidadesMovidas, prevUnidades)),
+        valor: redondear1(pct(valorTotal, prevValor)),
+      };
+    }
+
+    const kpis = {
+      total_movimientos: movimientos.length,
+      movimientos_hoy: movimientosHoy,
+      entradas_mov: entradasMov,
+      salidas_mov: salidasMov,
+      entradas_unid: Math.round(entradasUnid),
+      salidas_unid: Math.round(salidasUnid),
+      entradas_valor: formatoNumero(entradasValor),
+      salidas_valor: formatoNumero(salidasValor),
+      unidades_movidas: Math.round(unidadesMovidas),
+      valor_total: formatoNumero(valorTotal),
+      balance_unidades: Math.round(entradasUnid - salidasUnid),
+      usuarios_activos: usuariosActivos,
+      productos_movidos: productosMovidos,
+    };
+
+    res.status(200).json({
+      success: true,
+      message: 'Reporte de movimientos obtenido exitosamente',
+      data: {
+        rango: {
+          desde,
+          hasta,
+          dias: desde && hasta ? daysBetweenInclusive(desde, hasta) : null,
+          periodo_completo: !desde && !hasta,
+        },
+        kpis,
+        crecimiento,
+        por_tipo,
+        serie_diaria,
+        por_hora,
+        top_productos,
+        usuarios_activos,
+        movimientos_recientes: movimientosRecientes,
+        paleta_tipos: {
+          COMPRA: '#06b6d4',
+          VENTA: '#10b981',
+          AJUSTE: '#f59e0b',
+          DEVOLUCION: '#8b5cf6',
+          MERMA: '#f43f5e',
+        },
+      },
+    });
+  } catch (error) {
+    console.error('❌ Error fetching reporte de movimientos:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor al generar el reporte de movimientos',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};

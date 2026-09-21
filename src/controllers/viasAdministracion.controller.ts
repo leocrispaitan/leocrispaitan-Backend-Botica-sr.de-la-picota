@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { emitChange } from '../sockets';
 
 // Select compartido de vía de administración
 const VIA_SELECT = 'id_via_administracion, nombre, estado_logico, fecha_registro';
@@ -242,6 +243,10 @@ export const createViaAdministracion = async (req: Request, res: Response): Prom
       }
 
       const countMap = await getProductCountMap();
+      emitChange('viasAdministracion', 'activated', {
+        ...reactivada,
+        total_productos: countMap.get(reactivada.id_via_administracion) || 0,
+      });
       res.status(200).json({
         success: true,
         message: 'Vía de administración reactivada exitosamente',
@@ -278,6 +283,7 @@ export const createViaAdministracion = async (req: Request, res: Response): Prom
       return;
     }
 
+    emitChange('viasAdministracion', 'created', { ...via, total_productos: 0 });
     res.status(201).json({
       success: true,
       message: 'Vía de administración creada exitosamente',
@@ -397,6 +403,10 @@ export const updateViaAdministracion = async (req: Request, res: Response): Prom
     }
 
     const countMap = await getProductCountMap();
+    emitChange('viasAdministracion', 'updated', {
+      ...via,
+      total_productos: countMap.get(id) || 0,
+    });
     res.status(200).json({
       success: true,
       message: 'Vía de administración actualizada exitosamente',
@@ -474,6 +484,7 @@ export const deleteViaAdministracion = async (req: Request, res: Response): Prom
       return;
     }
 
+    emitChange('viasAdministracion', 'updated', via);
     res.status(200).json({
       success: true,
       message: 'Vía de administración eliminada exitosamente',

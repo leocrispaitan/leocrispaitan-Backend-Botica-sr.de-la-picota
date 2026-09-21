@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { emitChange } from '../sockets';
 
 // Select compartido: filas de producto con todas sus relaciones
 const PRODUCT_SELECT = `
@@ -383,6 +384,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       alerta_stock_bajo: stockData?.alerta_stock_bajo ?? false,
     };
 
+    emitChange('products', 'created', productoConStock);
     res.status(201).json({
       success: true,
       message: 'Producto creado exitosamente',
@@ -566,6 +568,7 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
       alerta_stock_bajo: stockData?.alerta_stock_bajo ?? false,
     };
 
+    emitChange('products', 'updated', productoConStock);
     res.status(200).json({
       success: true,
       message: 'Producto actualizado exitosamente',
@@ -637,6 +640,7 @@ export const deleteProduct = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    emitChange('products', 'updated', producto);
     res.status(200).json({
       success: true,
       message: 'Producto eliminado exitosamente',

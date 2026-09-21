@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { emitChange } from '../sockets';
 
 // Select compartido: filas de inventario_lote con su producto asociado
 const LOTE_SELECT = `
@@ -312,6 +313,7 @@ export const createLote = async (req: Request, res: Response): Promise<void> => 
       estado_vencimiento: clasificarEstadoVencimiento(diasParaVencer),
     };
 
+    emitChange('lotes', 'created', loteConEstado);
     res.status(201).json({
       success: true,
       message: 'Lote registrado exitosamente',
@@ -518,6 +520,7 @@ export const updateLote = async (req: Request, res: Response): Promise<void> => 
       estado_vencimiento: clasificarEstadoVencimiento(diasParaVencer),
     };
 
+    emitChange('lotes', 'updated', loteConEstado);
     res.status(200).json({
       success: true,
       message: 'Lote actualizado exitosamente',
@@ -616,6 +619,7 @@ export const deleteLote = async (req: Request, res: Response): Promise<void> => 
       estado_vencimiento: clasificarEstadoVencimiento(diasParaVencer),
     };
 
+    emitChange('lotes', 'updated', loteConEstado);
     res.status(200).json({
       success: true,
       message: 'Lote desactivado exitosamente',

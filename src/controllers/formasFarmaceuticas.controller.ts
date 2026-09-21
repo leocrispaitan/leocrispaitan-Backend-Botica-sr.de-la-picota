@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { emitChange } from '../sockets';
 
 // Select compartido de forma farmacéutica
 const FORMA_SELECT =
@@ -243,6 +244,10 @@ export const createFormaFarmaceutica = async (req: Request, res: Response): Prom
       }
 
       const countMap = await getProductCountMap();
+      emitChange('formasFarmaceuticas', 'activated', {
+        ...reactivada,
+        total_productos: countMap.get(reactivada.id_forma_farmaceutica) || 0,
+      });
       res.status(200).json({
         success: true,
         message: 'Forma farmacéutica reactivada exitosamente',
@@ -279,6 +284,7 @@ export const createFormaFarmaceutica = async (req: Request, res: Response): Prom
       return;
     }
 
+    emitChange('formasFarmaceuticas', 'created', { ...forma, total_productos: 0 });
     res.status(201).json({
       success: true,
       message: 'Forma farmacéutica creada exitosamente',
@@ -398,6 +404,10 @@ export const updateFormaFarmaceutica = async (req: Request, res: Response): Prom
     }
 
     const countMap = await getProductCountMap();
+    emitChange('formasFarmaceuticas', 'updated', {
+      ...forma,
+      total_productos: countMap.get(id) || 0,
+    });
     res.status(200).json({
       success: true,
       message: 'Forma farmacéutica actualizada exitosamente',
@@ -475,6 +485,7 @@ export const deleteFormaFarmaceutica = async (req: Request, res: Response): Prom
       return;
     }
 
+    emitChange('formasFarmaceuticas', 'updated', forma);
     res.status(200).json({
       success: true,
       message: 'Forma farmacéutica eliminada exitosamente',

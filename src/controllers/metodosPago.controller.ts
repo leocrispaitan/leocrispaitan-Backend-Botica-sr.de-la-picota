@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { emitChange } from '../sockets';
 
 // Select compartido de método de pago
 const METODO_SELECT =
@@ -247,6 +248,10 @@ export const createMetodoPago = async (req: Request, res: Response): Promise<voi
       }
 
       const countMap = await getVentaCountMap();
+      emitChange('metodosPago', 'activated', {
+        ...reactivado,
+        total_ventas: countMap.get(reactivado.id_metodo_pago) || 0,
+      });
       res.status(200).json({
         success: true,
         message: 'Método de pago reactivado exitosamente',
@@ -287,6 +292,7 @@ export const createMetodoPago = async (req: Request, res: Response): Promise<voi
       return;
     }
 
+    emitChange('metodosPago', 'created', { ...metodo, total_ventas: 0 });
     res.status(201).json({
       success: true,
       message: 'Método de pago creado exitosamente',
@@ -409,6 +415,10 @@ export const updateMetodoPago = async (req: Request, res: Response): Promise<voi
     }
 
     const countMap = await getVentaCountMap();
+    emitChange('metodosPago', 'updated', {
+      ...metodo,
+      total_ventas: countMap.get(id) || 0,
+    });
     res.status(200).json({
       success: true,
       message: 'Método de pago actualizado exitosamente',
@@ -486,6 +496,7 @@ export const deleteMetodoPago = async (req: Request, res: Response): Promise<voi
       return;
     }
 
+    emitChange('metodosPago', 'updated', metodo);
     res.status(200).json({
       success: true,
       message: 'Método de pago eliminado exitosamente',

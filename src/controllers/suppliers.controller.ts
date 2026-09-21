@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { emitChange } from '../sockets';
 
 // Select compartido de proveedor
 const SUPPLIER_SELECT =
@@ -309,6 +310,11 @@ export const createSupplier = async (req: Request, res: Response): Promise<void>
       }
 
       const statsMap = await getPurchaseStatsMap();
+      emitChange(
+        'suppliers',
+        'activated',
+        mergeStats(reactivado, statsMap.get(reactivado.id_proveedor))
+      );
       res.status(200).json({
         success: true,
         message: 'Proveedor reactivado exitosamente',
@@ -342,6 +348,7 @@ export const createSupplier = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    emitChange('suppliers', 'created', mergeStats(proveedor, { total_compras: 0, monto_total_comprado: 0 }));
     res.status(201).json({
       success: true,
       message: 'Proveedor creado exitosamente',
@@ -450,6 +457,7 @@ export const updateSupplier = async (req: Request, res: Response): Promise<void>
     }
 
     const statsMap = await getPurchaseStatsMap();
+    emitChange('suppliers', 'updated', mergeStats(proveedor, statsMap.get(id)));
     res.status(200).json({
       success: true,
       message: 'Proveedor actualizado exitosamente',
@@ -527,6 +535,7 @@ export const deleteSupplier = async (req: Request, res: Response): Promise<void>
     }
 
     const statsMap = await getPurchaseStatsMap();
+    emitChange('suppliers', 'updated', mergeStats(proveedor, statsMap.get(id)));
     res.status(200).json({
       success: true,
       message: 'Proveedor eliminado exitosamente',

@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { emitChange } from '../sockets';
 
 // ═══════════════════════════════════════════════════════════════════
 // INTERFACES
@@ -280,6 +281,7 @@ export const createUser = async (req: Request, res: Response): Promise<void> => 
     // RESPUESTA EXITOSA
     // ─────────────────────────────────────────────────────────────
 
+    emitChange('users', 'created', usuarioCreado);
     res.status(201).json({
       success: true,
       message: 'Usuario creado exitosamente',
@@ -441,6 +443,7 @@ export const updateUserStatus = async (req: Request, res: Response): Promise<voi
       return;
     }
 
+    emitChange('users', estado_logico ? 'activated' : 'desactivated', usuario);
     res.status(200).json({
       success: true,
       message: `Usuario ${estado_logico ? 'activado' : 'desactivado'} exitosamente`,
@@ -671,6 +674,7 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
     // RESPUESTA EXITOSA
     // ─────────────────────────────────────────────────────────────
 
+    emitChange('users', 'updated', usuario);
     res.status(200).json({
       success: true,
       message: 'Usuario actualizado exitosamente',
@@ -711,6 +715,7 @@ export const deleteUser = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
+    emitChange('users', 'updated', usuario);
     res.status(200).json({
       success: true,
       message: 'Usuario eliminado exitosamente',

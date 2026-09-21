@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { emitChange } from '../sockets';
 
 // Select compartido de categoría
 const CATEGORY_SELECT = 'id_categoria, nombre_categoria, descripcion, estado_logico, fecha_registro';
@@ -333,6 +334,10 @@ export const updateCategory = async (req: Request, res: Response): Promise<void>
     // ─── Conteo de productos para la categoría actualizada ───
     const countMap = await getProductCountMap();
 
+    emitChange('categories', 'updated', {
+      ...categoria,
+      total_productos: countMap.get(id) || 0,
+    });
     res.status(200).json({
       success: true,
       message: 'Categoría actualizada exitosamente',
@@ -407,6 +412,7 @@ export const deleteCategory = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    emitChange('categories', 'updated', categoria);
     res.status(200).json({
       success: true,
       message: 'Categoría eliminada exitosamente',
@@ -505,6 +511,7 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
         return;
       }
 
+      emitChange('categories', 'activated', { ...reactivada, total_productos: 0 });
       res.status(200).json({
         success: true,
         message: 'Categoría reactivada exitosamente',
@@ -546,6 +553,7 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    emitChange('categories', 'created', { ...categoria, total_productos: 0 });
     res.status(201).json({
       success: true,
       message: 'Categoría creada exitosamente',

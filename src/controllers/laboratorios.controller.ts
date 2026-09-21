@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { emitChange } from '../sockets';
 
 // Select compartido de laboratorio
 const LABORATORIO_SELECT =
@@ -287,6 +288,10 @@ export const createLaboratorio = async (req: Request, res: Response): Promise<vo
       }
 
       const countMap = await getProductCountMap();
+      emitChange('laboratorios', 'activated', {
+        ...reactivado,
+        total_productos: countMap.get(reactivado.id_laboratorio) || 0,
+      });
       res.status(200).json({
         success: true,
         message: 'Laboratorio reactivado exitosamente',
@@ -328,6 +333,7 @@ export const createLaboratorio = async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    emitChange('laboratorios', 'created', { ...laboratorio, total_productos: 0 });
     res.status(201).json({
       success: true,
       message: 'Laboratorio creado exitosamente',
@@ -453,6 +459,10 @@ export const updateLaboratorio = async (req: Request, res: Response): Promise<vo
     }
 
     const countMap = await getProductCountMap();
+    emitChange('laboratorios', 'updated', {
+      ...laboratorio,
+      total_productos: countMap.get(id) || 0,
+    });
     res.status(200).json({
       success: true,
       message: 'Laboratorio actualizado exitosamente',
@@ -530,6 +540,7 @@ export const deleteLaboratorio = async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    emitChange('laboratorios', 'updated', laboratorio);
     res.status(200).json({
       success: true,
       message: 'Laboratorio eliminado exitosamente',

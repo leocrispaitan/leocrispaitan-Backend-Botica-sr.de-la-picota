@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { AuthRequest } from '../types';
+import { emitChange } from '../sockets';
 
 // ═══════════════════════════════════════════════════════════════════
 // CONTROLADOR: DATOS PARA EL FORMULARIO DE NUEVA COMPRA
@@ -358,6 +359,7 @@ export const createPurchase = async (req: AuthRequest, res: Response): Promise<v
 
     if (fetchError) {
       console.error('❌ Error fetching created purchase:', fetchError);
+      emitChange('purchases', 'created', { id_movimiento, detalles: detallesInsertados });
       res.status(201).json({
         success: true,
         message: 'Compra registrada exitosamente',
@@ -366,6 +368,7 @@ export const createPurchase = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
+    emitChange('purchases', 'created', compraCompleta);
     res.status(201).json({
       success: true,
       message: 'Compra registrada exitosamente',

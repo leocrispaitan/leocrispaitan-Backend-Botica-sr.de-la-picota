@@ -1,5 +1,7 @@
+import http from 'http';
 import app from './app';
 import { config, validateConfig } from './config/env';
+import { initSocket } from './sockets';
 
 // Validar configuración antes de iniciar el servidor
 try {
@@ -12,8 +14,14 @@ try {
 // Puerto del servidor
 const PORT = config.port;
 
+// Servidor HTTP (Express + Socket.io comparten el mismo puerto)
+const server = http.createServer(app);
+
+// Inicializar Socket.io sobre el servidor HTTP
+initSocket(server);
+
 // Iniciar servidor
-const server = app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log('═══════════════════════════════════════════════════════');
   console.log('🚀 Servidor iniciado correctamente');
   console.log('═══════════════════════════════════════════════════════');

@@ -385,9 +385,18 @@ export const getVentas = async (req: AuthRequest, res: Response): Promise<void> 
       q = q.eq('id_usuario', req.user!.usuario.id_usuario);
     }
     if (onlyToday) {
-      const d = new Date();
-      const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      q = q.gte('fecha_venta', `${ymd}T00:00:00`).lte('fecha_venta', `${ymd}T23:59:59`);
+      // Día operativo en America/Lima (UTC-5 fijo, sin DST). La BD guarda
+      // fecha_venta en UTC, así que el "hoy" de Lima equivale a [05:00Z, 05:00Z+1).
+      const limaYmd = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Lima',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+      const [y, m, d] = limaYmd.split('-').map(Number);
+      const next = new Date(Date.UTC(y, m - 1, d + 1));
+      const nextYmd = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
+      q = q.gte('fecha_venta', `${limaYmd}T05:00:00`).lt('fecha_venta', `${nextYmd}T05:00:00`);
     }
 
     const { data, error, count } = await q;

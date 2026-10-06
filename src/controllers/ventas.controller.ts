@@ -229,6 +229,7 @@ export const createVenta = async (req: AuthRequest, res: Response): Promise<void
         }
         idClienteFinal = nuevoCli.id_cliente;
         nombreClienteFinal = nuevoCli.nombre_razon_social;
+        emitChange('clientes', 'created', nuevoCli);
       }
     }
     if (exigeReceta && !idClienteFinal) {

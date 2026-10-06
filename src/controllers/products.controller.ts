@@ -60,6 +60,16 @@ const PRODUCT_SELECT = `
     id_laboratorio,
     nombre,
     pais
+  ),
+  producto_presentacion (
+    id_presentacion,
+    codigo_presentacion,
+    nombre_presentacion,
+    factor_a_base,
+    precio_venta,
+    es_base,
+    permite_venta,
+    estado_logico
   )
 `;
 
@@ -119,12 +129,31 @@ export const getAllProducts = async (req: Request, res: Response): Promise<void>
       });
     });
 
+    // 4. Unidades vendidas por producto (para el POS: "X vendidos").
+    // Tabla aditiva: no afecta a las vistas de admin existentes.
+    const vendidosMap = new Map<number, number>();
+    const { data: vendidosData } = await supabaseAdmin
+      .from('detalle_venta')
+      .select('id_producto, cantidad');
+    (vendidosData || []).forEach((d: { id_producto: number; cantidad: number | string }) => {
+      vendidosMap.set(d.id_producto, (vendidosMap.get(d.id_producto) || 0) + (Number(d.cantidad) || 0));
+    });
+
     const productosConStock = (productos || []).map((producto) => {
       const stock = stockMap.get(producto.id_producto);
+      const presentaciones = ((producto as { producto_presentacion?: unknown }).producto_presentacion as Array<{
+        estado_logico: boolean;
+        permite_venta: boolean;
+        factor_a_base: number | string;
+      }> | undefined || [])
+        .filter((p) => p.estado_logico !== false && p.permite_venta !== false)
+        .sort((a, b) => Number(a.factor_a_base) - Number(b.factor_a_base));
       return {
         ...producto,
         stock_actual: stock?.stock_total_actual ?? 0,
         alerta_stock_bajo: stock?.alerta_stock_bajo ?? false,
+        vendidos: vendidosMap.get(producto.id_producto) || 0,
+        presentaciones,
       };
     });
 

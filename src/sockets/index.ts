@@ -55,7 +55,9 @@ export type EntityName =
   | 'formasFarmaceuticas'
   | 'metodosPago'
   | 'laboratorios'
-  | 'purchases';
+  | 'purchases'
+  | 'ventas'
+  | 'clientes';
 
 export type ChangeAction =
   | 'created'

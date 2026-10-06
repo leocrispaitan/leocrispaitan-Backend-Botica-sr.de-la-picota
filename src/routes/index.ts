@@ -12,6 +12,8 @@ import viasAdministracionRoutes from './viasAdministracion.routes';
 import laboratoriosRoutes from './laboratorios.routes';
 import metodosPagoRoutes from './metodosPago.routes';
 import reportesRoutes from './reportes.routes';
+import ventasRoutes from './ventas.routes';
+import clientesRoutes from './clientes.routes';
 
 const router = Router();
 
@@ -56,6 +58,12 @@ router.use('/metodos-pago', metodosPagoRoutes);
 
 // Rutas de reportes
 router.use('/reportes', reportesRoutes);
+
+// Rutas de ventas POS (vendedor o admin)
+router.use('/ventas', ventasRoutes);
+
+// Rutas de clientes POS (vendedor o admin)
+router.use('/clientes', clientesRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

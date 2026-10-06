@@ -24,6 +24,9 @@ const PRODUCT_SELECT = `
   id_fabricante,
   estado_logico,
   fecha_registro,
+  unidades_por_base,
+  unidad_fraccion,
+  tamano_blister,
   categoria (
     id_categoria,
     nombre_categoria,
@@ -276,6 +279,80 @@ export const getProductCatalog = async (req: Request, res: Response): Promise<vo
 };
 
 // ═══════════════════════════════════════════════════════════════════
+// VALIDACIÓN COMPARTIDA: FRACCIONAMIENTO (tabletas/blíster por caja)
+// ═══════════════════════════════════════════════════════════════════
+
+const FRACCIONES_VALIDAS = ['TAB', 'CAP', 'AMP'] as const;
+const UNIDADES_NO_FRACCIONABLES = ['FRASCO', 'FRASCO GOTERO', 'TUBO', 'GOTERO', 'SOBRE', 'SPRAY'];
+
+interface FraccionamientoNorm {
+  unidades_por_base: number | null;
+  unidad_fraccion: string | null;
+  tamano_blister: number | null;
+}
+
+/**
+ * Valida los 3 campos de fraccionamiento y devuelve errores + valores
+ * normalizados (null = no fracciona). No toca la BD.
+ */
+const validarFraccionamiento = (
+  body: Record<string, unknown>,
+  unidadMedida: unknown
+): { errores: string[]; norm: FraccionamientoNorm } => {
+  const errores: string[] = [];
+  const rawN = body.unidades_por_base;
+  const rawF = body.unidad_fraccion;
+  const rawT = body.tamano_blister;
+  const tieneN = rawN !== undefined && rawN !== null && String(rawN).trim() !== '';
+  const tieneF = rawF !== undefined && rawF !== null && String(rawF).trim() !== '';
+  const tieneT = rawT !== undefined && rawT !== null && String(rawT).trim() !== '';
+
+  let n: number | null = null;
+  let f: string | null = null;
+  let t: number | null = null;
+
+  if (tieneN) {
+    if (!Number.isInteger(Number(rawN)) || Number(rawN) <= 0) {
+      errores.push('Unidades por base debe ser un entero mayor a 0 (ej. 10 tabletas por caja).');
+    } else {
+      n = Number(rawN);
+    }
+  }
+  if (tieneF) {
+    const codigo = String(rawF).trim().toUpperCase();
+    if (!FRACCIONES_VALIDAS.includes(codigo as (typeof FRACCIONES_VALIDAS)[number])) {
+      errores.push('La unidad de fracción debe ser TAB, CAP o AMP.');
+    } else {
+      f = codigo;
+    }
+  }
+  if (tieneT) {
+    if (!Number.isInteger(Number(rawT)) || Number(rawT) <= 0) {
+      errores.push('El tamaño del blíster debe ser un entero mayor a 0.');
+    } else {
+      t = Number(rawT);
+    }
+  }
+
+  if ((tieneN || tieneT) && !tieneF && !f) {
+    errores.push('Si indicas unidades por base o tamaño de blíster, debes elegir la unidad de fracción (TAB/CAP/AMP).');
+  }
+  if (tieneF && !tieneN && n === null) {
+    errores.push('Si eliges unidad de fracción, debes indicar cuántas unidades trae la base.');
+  }
+  const unidad = String(unidadMedida || '').trim().toUpperCase();
+  if (tieneN && UNIDADES_NO_FRACCIONABLES.includes(unidad)) {
+    errores.push(`La unidad ${String(unidadMedida).trim()} no se fracciona (es de venta directa).`);
+  }
+
+  if (errores.length === 0 && tieneN && n !== null) {
+    t = t ?? 10;
+  }
+
+  return { errores, norm: { unidades_por_base: n, unidad_fraccion: f, tamano_blister: t } };
+};
+
+// ═══════════════════════════════════════════════════════════════════
 // CONTROLADOR: CREAR PRODUCTO
 // ═══════════════════════════════════════════════════════════════════
 
@@ -334,6 +411,10 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       errores.push('Debe seleccionar un proveedor válido.');
     }
 
+    // ─── Fraccionamiento (tabletas/blíster por caja) ───
+    const { errores: fracErrores, norm: frac } = validarFraccionamiento(req.body || {}, unidad_medida);
+    errores.push(...fracErrores);
+
     if (errores.length > 0) {
       res.status(400).json({
         success: false,
@@ -355,6 +436,11 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       id_proveedor: Number(id_proveedor),
       estado_logico: true,
     };
+    if (frac.unidades_por_base !== null) {
+      payload.unidades_por_base = frac.unidades_por_base;
+      payload.unidad_fraccion = frac.unidad_fraccion;
+      payload.tamano_blister = frac.tamano_blister;
+    }
 
     if (composicion && String(composicion).trim()) payload.composicion = String(composicion).trim();
     if (presentacion && String(presentacion).trim()) payload.presentacion = String(presentacion).trim();
@@ -500,6 +586,10 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
       errores.push('Debe seleccionar un proveedor válido.');
     }
 
+    // ─── Fraccionamiento (tabletas/blíster por caja) ───
+    const { errores: fracErroresUpd, norm: fracUpd } = validarFraccionamiento(req.body || {}, unidad_medida);
+    errores.push(...fracErroresUpd);
+
     if (errores.length > 0) {
       res.status(400).json({
         success: false,
@@ -550,6 +640,19 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
     payload.id_laboratorio_titular = id_laboratorio_titular ? Number(id_laboratorio_titular) : null;
     payload.id_fabricante = id_fabricante ? Number(id_fabricante) : null;
     if (typeof estado_logico === 'boolean') payload.estado_logico = estado_logico;
+    // Fraccionamiento: null limpia (no fracciona); con N regenera el trigger
+    if (fracUpd.unidades_por_base !== null) {
+      payload.unidades_por_base = fracUpd.unidades_por_base;
+      payload.unidad_fraccion = fracUpd.unidad_fraccion;
+      payload.tamano_blister = fracUpd.tamano_blister;
+    } else if (
+      req.body?.unidades_por_base !== undefined ||
+      req.body?.unidad_fraccion !== undefined
+    ) {
+      payload.unidades_por_base = null;
+      payload.unidad_fraccion = null;
+      payload.tamano_blister = null;
+    }
 
     // ─── Actualizar el producto ───
     const { error: updateError } = await supabaseAdmin
@@ -565,6 +668,15 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
         error: updateError.message,
       });
       return;
+    }
+
+    // Si se quitó el fraccionamiento, desactivar presentaciones no base (histórico intacto)
+    if (payload.unidades_por_base === null) {
+      await supabaseAdmin
+        .from('producto_presentacion')
+        .update({ estado_logico: false })
+        .eq('id_producto', id)
+        .eq('es_base', false);
     }
 
     // ─── Obtener el producto actualizado con relaciones ───
@@ -677,6 +789,99 @@ export const deleteProduct = async (req: Request, res: Response): Promise<void> 
     });
   } catch (error) {
     console.error('❌ Error in deleteProduct:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// CONTROLADOR: EDITAR PRESENTACIONES DE VENTA (precio / vigencia)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Ajustar precio y vigencia de las presentaciones de un producto
+ * (TAB/BL/CJ...). El precio BASE se edita en el producto (los sincroniza
+ * el trigger); aquí solo se tocan las fracciones.
+ *
+ * PUT /api/v1/products/:id/presentaciones
+ * Body: { presentaciones: [{ codigo_presentacion, precio_venta?, permite_venta? }] }
+ */
+export const updatePresentaciones = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ success: false, message: 'El ID del producto no es válido.' });
+      return;
+    }
+    const lista = (req.body || {}).presentaciones;
+    if (!Array.isArray(lista) || lista.length === 0) {
+      res.status(400).json({ success: false, message: 'Envía al menos una presentación para actualizar.' });
+      return;
+    }
+
+    const { data: actuales, error: fetchError } = await supabaseAdmin
+      .from('producto_presentacion')
+      .select('id_presentacion, codigo_presentacion, es_base')
+      .eq('id_producto', id)
+      .eq('estado_logico', true);
+    if (fetchError) {
+      res.status(500).json({ success: false, message: 'Error al leer presentaciones', error: fetchError.message });
+      return;
+    }
+    const mapa = new Map((actuales || []).map((p) => [p.codigo_presentacion, p]));
+    const errores: string[] = [];
+
+    for (const item of lista) {
+      const codigo = String(item?.codigo_presentacion || '').toUpperCase();
+      const row = mapa.get(codigo);
+      if (!row) {
+        errores.push(`Presentación ${codigo || '(vacía)'} no existe para este producto.`);
+        continue;
+      }
+      const patch: Record<string, unknown> = {};
+      if (item?.precio_venta !== undefined && item?.precio_venta !== null && String(item.precio_venta).trim() !== '') {
+        if (row.es_base) {
+          errores.push(`El precio base (${codigo}) se edita en el producto, no aquí.`);
+          continue;
+        }
+        if (!(Number(item.precio_venta) > 0)) {
+          errores.push(`Precio inválido para ${codigo}: debe ser mayor a 0.`);
+          continue;
+        }
+        patch.precio_venta = Number(item.precio_venta);
+      }
+      if (typeof item?.permite_venta === 'boolean') {
+        patch.permite_venta = item.permite_venta;
+      }
+      if (Object.keys(patch).length === 0) continue;
+      const { error: updError } = await supabaseAdmin
+        .from('producto_presentacion')
+        .update(patch)
+        .eq('id_presentacion', row.id_presentacion);
+      if (updError) {
+        errores.push(`No se pudo actualizar ${codigo}: ${updError.message}`);
+      }
+    }
+
+    if (errores.length > 0) {
+      res.status(400).json({ success: false, message: 'Algunas presentaciones no se actualizaron', error: errores });
+      return;
+    }
+
+    const { data: final } = await supabaseAdmin
+      .from('producto_presentacion')
+      .select('id_presentacion, codigo_presentacion, nombre_presentacion, factor_a_base, precio_venta, es_base, permite_venta, estado_logico')
+      .eq('id_producto', id)
+      .eq('estado_logico', true)
+      .order('factor_a_base', { ascending: true });
+
+    emitChange('products', 'updated', { id_producto: id });
+    res.status(200).json({ success: true, message: 'Presentaciones actualizadas exitosamente', data: final || [] });
+  } catch (error) {
+    console.error('❌ Error in updatePresentaciones:', error);
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor',

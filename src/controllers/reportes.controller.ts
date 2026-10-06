@@ -67,6 +67,8 @@ interface DetalleDoc {
   id_venta: number;
   cantidad: number;
   precio_unitario_venta: number;
+  codigo_presentacion: string | null;
+  cantidad_presentacion: number | null;
   producto: { id_producto: number; nombre_comercial: string } | null;
 }
 
@@ -126,7 +128,7 @@ const fetchDetalle = async (ids: number[]): Promise<DetalleDoc[]> => {
 
   const { data, error } = await supabaseAdmin
     .from('detalle_venta')
-    .select('id_venta, cantidad, precio_unitario_venta, producto (id_producto, nombre_comercial)')
+    .select('id_venta, cantidad, precio_unitario_venta, codigo_presentacion, cantidad_presentacion, producto (id_producto, nombre_comercial)')
     .in('id_venta', ids);
 
   if (error) throw new Error(error.message);
@@ -137,6 +139,8 @@ const fetchDetalle = async (ids: number[]): Promise<DetalleDoc[]> => {
       id_venta: d.id_venta,
       cantidad: Number(d.cantidad),
       precio_unitario_venta: Number(d.precio_unitario_venta),
+      codigo_presentacion: d.codigo_presentacion || null,
+      cantidad_presentacion: d.cantidad_presentacion != null ? Number(d.cantidad_presentacion) : null,
       producto,
     };
   });
@@ -373,16 +377,22 @@ export const getReporteVentas = async (req: Request, res: Response): Promise<voi
       .map((estado) => ({ estado, ventas: estadoMap.get(estado) || 0 }));
 
     // ─── Top productos ───
+    // `cantidad` suma unidades BASE (ej. cajas, puede ser fraccionada como 6.2);
+    // `presentaciones` desglosa en unidades de venta (ej. 6 CJ + 2 TAB).
     const idsVigentes = new Set(ventas.filter((v) => v.estado_venta !== 'ANULADA').map((v) => v.id_venta));
-    const productoMap = new Map<string, { cantidad: number; ingresos: number }>();
+    const productoMap = new Map<string, { cantidad: number; ingresos: number; pres: Map<string, number> }>();
 
     detalle.forEach((d) => {
       if (!idsVigentes.has(d.id_venta)) return;
       const nombre = d.producto?.nombre_comercial || `Producto #${d.producto?.id_producto ?? ''}`.trim();
-      const actual = productoMap.get(nombre) || { cantidad: 0, ingresos: 0 };
+      const actual = productoMap.get(nombre) || { cantidad: 0, ingresos: 0, pres: new Map<string, number>() };
+      if (d.codigo_presentacion && d.cantidad_presentacion != null) {
+        actual.pres.set(d.codigo_presentacion, (actual.pres.get(d.codigo_presentacion) || 0) + d.cantidad_presentacion);
+      }
       productoMap.set(nombre, {
         cantidad: actual.cantidad + (d.producto ? d.cantidad : 0),
         ingresos: actual.ingresos + (d.producto ? d.cantidad * d.precio_unitario_venta : 0),
+        pres: actual.pres,
       });
     });
 
@@ -391,6 +401,7 @@ export const getReporteVentas = async (req: Request, res: Response): Promise<voi
         nombre,
         cantidad: datos.cantidad,
         ingresos: formatoNumero(datos.ingresos),
+        presentaciones: Array.from(datos.pres.entries()).map(([codigo, cantidad]) => ({ codigo, cantidad })),
         porcentaje: kpis.total_ingresos > 0 ? redondear1((datos.ingresos / kpis.total_ingresos) * 100) : 0,
       }))
       .sort((a, b) => b.ingresos - a.ingresos)

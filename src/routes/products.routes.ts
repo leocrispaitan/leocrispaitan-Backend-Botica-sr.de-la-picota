@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAllProducts, getProductCatalog, createProduct, updateProduct, deleteProduct } from '../controllers/products.controller';
+import { getAllProducts, getProductCatalog, createProduct, updateProduct, deleteProduct, updatePresentaciones } from '../controllers/products.controller';
 import { authenticate, isAlmaceneroOrAdmin } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -34,6 +34,13 @@ router.post('/', isAlmaceneroOrAdmin, createProduct);
  * @access  Private (requiere autenticación - almacenero o admin)
  */
 router.put('/:id', isAlmaceneroOrAdmin, updateProduct);
+
+/**
+ * @route   PUT /api/v1/products/:id/presentaciones
+ * @desc    Ajustar precio/vigencia de presentaciones (TAB/BL/CJ). Precio base se edita en el producto.
+ * @access  Private (requiere autenticación - almacenero o admin)
+ */
+router.put('/:id/presentaciones', isAlmaceneroOrAdmin, updatePresentaciones);
 
 /**
  * @route   DELETE /api/v1/products/:id

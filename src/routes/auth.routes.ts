@@ -7,6 +7,7 @@ import {
   refreshToken,
   forgotPassword,
   resetPassword,
+  changePassword,
 } from '../controllers/auth.controller';
 import { authenticate, isAdmin } from '../middlewares/auth.middleware';
 
@@ -123,6 +124,7 @@ router.post('/login', async (req, res) => {
  * @access  Public (ya que el token puede estar expirado)
  */
 router.post('/logout', logout);
+router.post('/change-password', authenticate, changePassword);
 
 /**
  * @route   GET /api/auth/profile

@@ -66,6 +66,8 @@ export const login = async (req: AuthRequest, res: Response) => {
           nombre_completo: userData.nombre_completo,
           foto_perfil_url: userData.foto_perfil_url,
           telefono: userData.telefono,
+          ultimo_acceso: userData.ultimo_acceso,
+          fecha_registro: userData.fecha_registro,
           rol: userData.rol,
         },
         session: {
@@ -134,6 +136,46 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
  * Logout del usuario
  * POST /api/auth/logout
  */
+export const changePassword = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: 'Usuario no autenticado' });
+      return;
+    }
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ success: false, message: 'La contrasena actual y la nueva son obligatorias.' });
+      return;
+    }
+    if (String(newPassword).length < 6) {
+      res.status(400).json({ success: false, message: 'La nueva contrasena debe tener al menos 6 caracteres.' });
+      return;
+    }
+
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email: req.user.usuario.email,
+      password: String(currentPassword),
+    });
+    if (verifyError) {
+      res.status(400).json({ success: false, message: 'La contrasena actual es incorrecta.' });
+      return;
+    }
+
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+      req.user.usuario.id_auth,
+      { password: String(newPassword) }
+    );
+    if (updateError) {
+      res.status(500).json({ success: false, message: 'No se pudo cambiar la contrasena', error: updateError.message });
+      return;
+    }
+
+    res.status(200).json({ success: true, message: 'Contrasena cambiada exitosamente.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error interno del servidor', error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+};
+
 export const logout = async (req: AuthRequest, res: Response) => {
   try {
     console.log('🚪 Procesando logout...');

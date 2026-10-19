@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
+import { getDbToday } from '../utils/dbDate';
 
 const MESES_CORTOS = [
   'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
@@ -481,6 +482,7 @@ interface LoteDoc {
   costo_unitario_compra: number;
   stock_lote: number;
   ubicacion_estante: string | null;
+  estado_logico: boolean;
 }
 
 interface MovimientoDoc {
@@ -580,7 +582,7 @@ const fetchLotes = async (): Promise<LoteDoc[]> => {
   const { data, error } = await supabaseAdmin
     .from('inventario_lote')
     .select(
-      'id_inventario, id_producto, numero_lote, fecha_vencimiento, fecha_ingreso, costo_unitario_compra, stock_lote, ubicacion_estante'
+      'id_inventario, id_producto, numero_lote, fecha_vencimiento, fecha_ingreso, costo_unitario_compra, stock_lote, ubicacion_estante, estado_logico'
     );
 
   if (error) throw new Error(error.message);
@@ -594,6 +596,7 @@ const fetchLotes = async (): Promise<LoteDoc[]> => {
     costo_unitario_compra: Number(l.costo_unitario_compra),
     stock_lote: Number(l.stock_lote),
     ubicacion_estante: l.ubicacion_estante,
+    estado_logico: l.estado_logico ?? true,
   }));
 };
 
@@ -647,6 +650,14 @@ const esEntrada = (tipo: string): boolean => TIPOS_ENTRADA.has(tipo.toUpperCase(
  */
 export const getReporteInventario = async (req: Request, res: Response): Promise<void> => {
   try {
+    // Cuarentena automática de lotes vencidos
+    const hoyQ = await getDbToday();
+    await supabaseAdmin
+      .from('inventario_lote')
+      .update({ estado_logico: false })
+      .eq('estado_logico', true)
+      .lt('fecha_vencimiento', hoyQ);
+
     const rango = parseRango(req.query.desde, req.query.hasta);
 
     if (!rango) {
@@ -667,13 +678,20 @@ export const getReporteInventario = async (req: Request, res: Response): Promise
       fetchLotes(),
     ]);
 
-    const hoy = toYMD(new Date());
+    const hoy = await getDbToday();
     const hoyMs = new Date(`${hoy}T00:00:00`).getTime();
 
     const lotesConStock = lotes.filter((l) => l.stock_lote > 0);
 
+    // Lotes vendibles: activos y no vencidos (los vencidos no cuentan en stock disponible)
+    const lotesVendibles = lotesConStock.filter((l) => {
+      if (l.estado_logico === false) return false;
+      if (l.fecha_vencimiento && l.fecha_vencimiento < hoy) return false;
+      return true;
+    });
+
     const stockPorProducto = new Map<number, number>();
-    lotesConStock.forEach((l) => {
+    lotesVendibles.forEach((l) => {
       stockPorProducto.set(l.id_producto, (stockPorProducto.get(l.id_producto) || 0) + l.stock_lote);
     });
 
@@ -687,7 +705,7 @@ export const getReporteInventario = async (req: Request, res: Response): Promise
       const stock = stockPorProducto.get(p.id_producto) || 0;
       let valorInventario = 0;
       let valorPotencial = 0;
-      lotesConStock
+      lotesVendibles
         .filter((l) => l.id_producto === p.id_producto)
         .forEach((l) => {
           valorInventario += l.stock_lote * l.costo_unitario_compra;
@@ -711,8 +729,8 @@ export const getReporteInventario = async (req: Request, res: Response): Promise
     });
 
     // ─── KPIs ───
-    const unidadesTotales = lotesConStock.reduce((sum, l) => sum + l.stock_lote, 0);
-    const valorInventario = lotesConStock.reduce((sum, l) => sum + l.stock_lote * l.costo_unitario_compra, 0);
+    const unidadesTotales = lotesVendibles.reduce((sum, l) => sum + l.stock_lote, 0);
+    const valorInventario = lotesVendibles.reduce((sum, l) => sum + l.stock_lote * l.costo_unitario_compra, 0);
     const valorPotencial = productos.reduce((sum, p) => sum + p.valor_potencial, 0);
 
     const estados = new Map<string, number>();
@@ -972,7 +990,7 @@ export const getReporteInventario = async (req: Request, res: Response): Promise
       total_categorias: categoriaMap.size,
       total_proveedores: new Set(productosRaw.map((p) => p.id_proveedor).filter((id): id is number => id != null)).size,
       unidades_totales: Math.round(unidadesTotales),
-      lotes_total: lotesConStock.length,
+      lotes_total: lotesVendibles.length,
       valor_inventario: formatoNumero(valorInventario),
       valor_potencial: formatoNumero(valorPotencial),
       margen_potencial: formatoNumero(valorPotencial - valorInventario),
@@ -1138,7 +1156,7 @@ export const getReporteMovimientos = async (req: Request, res: Response): Promis
     ).size;
     const productosMovidos = new Set(detalle.map((d) => d.producto?.id_producto).filter((id) => id != null)).size;
 
-    const hoy = toYMD(new Date());
+    const hoy = await getDbToday();
     const movimientosHoy = movimientos.filter((m) => {
       const d = new Date(m.fecha_hora.replace(' ', 'T'));
       return toYMD(d) === hoy;

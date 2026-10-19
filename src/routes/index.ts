@@ -14,6 +14,7 @@ import metodosPagoRoutes from './metodosPago.routes';
 import reportesRoutes from './reportes.routes';
 import ventasRoutes from './ventas.routes';
 import clientesRoutes from './clientes.routes';
+import solicitudesRoutes from './solicitudes.routes';
 
 const router = Router();
 
@@ -64,6 +65,9 @@ router.use('/ventas', ventasRoutes);
 
 // Rutas de clientes POS (vendedor o admin)
 router.use('/clientes', clientesRoutes);
+
+// Rutas de solicitudes de registro (POST público, revisión admin)
+router.use('/solicitudes', solicitudesRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

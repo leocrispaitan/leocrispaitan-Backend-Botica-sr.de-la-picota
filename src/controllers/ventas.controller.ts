@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { AuthRequest, RolEnum } from '../types';
 import { emitChange } from '../sockets';
+import { getDbToday } from '../utils/dbDate';
 
 const COMPROBANTES_VALIDOS = ['BOLETA', 'FACTURA', 'TICKET'] as const;
 
@@ -162,9 +163,12 @@ export const createVenta = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
+    // Hoy (yyyy-mm-dd) según el servidor de BD, para excluir lotes vencidos
+    const hoyStr = await getDbToday();
+
     const { data: lotesStock, error: stockError } = await supabaseAdmin
       .from('inventario_lote')
-      .select('id_producto, stock_lote')
+      .select('id_producto, stock_lote, fecha_vencimiento')
       .in('id_producto', ids)
       .eq('estado_logico', true);
     if (stockError) {
@@ -172,7 +176,9 @@ export const createVenta = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
     const stockMap = new Map<number, number>();
-    (lotesStock || []).forEach((l: { id_producto: number; stock_lote: number | string }) => {
+    (lotesStock || []).forEach((l: { id_producto: number; stock_lote: number | string; fecha_vencimiento: string | null }) => {
+      // Excluir lotes vencidos (fecha < hoy) del stock disponible para la venta
+      if (l.fecha_vencimiento && l.fecha_vencimiento < hoyStr) return;
       stockMap.set(l.id_producto, (stockMap.get(l.id_producto) || 0) + (Number(l.stock_lote) || 0));
     });
     const needMap = new Map<number, number>();
@@ -296,7 +302,7 @@ export const createVenta = async (req: AuthRequest, res: Response): Promise<void
         return;
       }
 
-      // Lotes FEFO: vencimiento más próximo primero
+      // Lotes FEFO: vencimiento más próximo primero, excluyendo lotes vencidos
       const { data: lotes } = await supabaseAdmin
         .from('inventario_lote')
         .select('id_inventario, stock_lote, fecha_vencimiento, fecha_ingreso')
@@ -309,6 +315,8 @@ export const createVenta = async (req: AuthRequest, res: Response): Promise<void
       let restante = it.cantidad_base;
       for (const lote of lotes || []) {
         if (restante <= 1e-9) break;
+        // Excluir lotes vencidos (no disponibles para la venta)
+        if (lote.fecha_vencimiento && lote.fecha_vencimiento < hoyStr) continue;
         const stockLote = Number(lote.stock_lote) || 0;
         const tomar = r6(Math.min(stockLote, restante));
         if (tomar <= 0) continue;
@@ -330,6 +338,15 @@ export const createVenta = async (req: AuthRequest, res: Response): Promise<void
           return;
         }
         restante -= tomar;
+      }
+      // Si no se pudo cubrir toda la cantidad con lotes vigentes (no vencidos)
+      if (restante > 1e-9) {
+        res.status(400).json({
+          success: false,
+          message: `Stock insuficiente para el producto ${it.id_producto}: faltan ${r6(restante)} unidades disponibles (los lotes vencidos no se venden).`,
+          error: ['Stock insuficiente (lotes vencidos excluidos).'],
+        });
+        return;
       }
     }
 

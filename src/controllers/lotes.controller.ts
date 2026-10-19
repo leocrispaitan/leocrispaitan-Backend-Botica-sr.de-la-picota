@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { emitChange } from '../sockets';
+import { getDbToday } from '../utils/dbDate';
 
 // Select compartido: filas de inventario_lote con su producto asociado
 const LOTE_SELECT = `
@@ -26,10 +27,10 @@ const DIAS_POR_VENCER = 90;
 /**
  * Calcular los días restantes para el vencimiento de un lote.
  */
-const calcularDiasParaVencer = (fechaVencimiento: string | null): number | null => {
+const calcularDiasParaVencer = (fechaVencimiento: string | null, hoyStr?: string): number | null => {
   if (!fechaVencimiento) return null;
 
-  const hoy = new Date();
+  const hoy = hoyStr ? new Date(`${hoyStr}T00:00:00`) : new Date();
   hoy.setHours(0, 0, 0, 0);
 
   const vencimiento = new Date(`${fechaVencimiento}T00:00:00`);
@@ -62,6 +63,14 @@ const clasificarEstadoVencimiento = (diasParaVencer: number | null): 'vigente' |
  */
 export const getAllLotes = async (req: Request, res: Response): Promise<void> => {
   try {
+    // Cuarentena automática: desactivar lotes vencidos para que no se vendan ni cuenten en stock
+    const hoyStr = await getDbToday();
+    await supabaseAdmin
+      .from('inventario_lote')
+      .update({ estado_logico: false })
+      .eq('estado_logico', true)
+      .lt('fecha_vencimiento', hoyStr);
+
     const { data: lotes, error } = await supabaseAdmin
       .from('inventario_lote')
       .select(LOTE_SELECT)
@@ -79,7 +88,7 @@ export const getAllLotes = async (req: Request, res: Response): Promise<void> =>
     }
 
     const lotesConEstado = (lotes || []).map((lote) => {
-      const diasParaVencer = calcularDiasParaVencer(lote.fecha_vencimiento);
+      const diasParaVencer = calcularDiasParaVencer(lote.fecha_vencimiento, hoyStr);
       return {
         ...lote,
         dias_para_vencer: diasParaVencer,
@@ -150,7 +159,8 @@ export const getLoteById = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const diasParaVencer = calcularDiasParaVencer(lote.fecha_vencimiento);
+    const hoyStrLote = await getDbToday();
+    const diasParaVencer = calcularDiasParaVencer(lote.fecha_vencimiento, hoyStrLote);
     const loteConEstado = {
       ...lote,
       dias_para_vencer: diasParaVencer,
@@ -306,7 +316,8 @@ export const createLote = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    const diasParaVencer = calcularDiasParaVencer(loteCreado.fecha_vencimiento);
+    const hoyStrLote = await getDbToday();
+    const diasParaVencer = calcularDiasParaVencer(loteCreado.fecha_vencimiento, hoyStrLote);
     const loteConEstado = {
       ...loteCreado,
       dias_para_vencer: diasParaVencer,
@@ -415,7 +426,7 @@ export const updateLote = async (req: Request, res: Response): Promise<void> => 
     // ── Verificar que el lote exista ──
     const { data: loteExistente, error: loteError } = await supabaseAdmin
       .from('inventario_lote')
-      .select('id_inventario')
+      .select('id_inventario, fecha_vencimiento, estado_logico')
       .eq('id_inventario', id)
       .maybeSingle();
 
@@ -460,6 +471,18 @@ export const updateLote = async (req: Request, res: Response): Promise<void> => 
         success: false,
         message: 'El producto seleccionado no existe.',
         error: ['El producto seleccionado no existe.'],
+      });
+      return;
+    }
+
+    // ── No permitir activar un lote vencido ──
+    const fechaFinalLote = fecha_vencimiento || loteExistente?.fecha_vencimiento || null;
+    const hoyStrAct = await getDbToday();
+    if (estado_logico === true && fechaFinalLote && fechaFinalLote < hoyStrAct) {
+      res.status(400).json({
+        success: false,
+        message: 'No se puede activar un lote vencido.',
+        error: ['No se puede activar un lote vencido.'],
       });
       return;
     }
@@ -513,7 +536,8 @@ export const updateLote = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    const diasParaVencer = calcularDiasParaVencer(loteActualizado.fecha_vencimiento);
+    const hoyStrLote = await getDbToday();
+    const diasParaVencer = calcularDiasParaVencer(loteActualizado.fecha_vencimiento, hoyStrLote);
     const loteConEstado = {
       ...loteActualizado,
       dias_para_vencer: diasParaVencer,
@@ -612,7 +636,8 @@ export const deleteLote = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    const diasParaVencer = calcularDiasParaVencer(loteDesactivado.fecha_vencimiento);
+    const hoyStrLote = await getDbToday();
+    const diasParaVencer = calcularDiasParaVencer(loteDesactivado.fecha_vencimiento, hoyStrLote);
     const loteConEstado = {
       ...loteDesactivado,
       dias_para_vencer: diasParaVencer,
